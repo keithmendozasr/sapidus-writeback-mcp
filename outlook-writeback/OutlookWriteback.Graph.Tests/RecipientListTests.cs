@@ -35,4 +35,48 @@ public class RecipientListTests
             () => RecipientList.Normalize(["alice@example.com", "   "]),
             Throws.ArgumentException);
     }
+
+    [Test]
+    public void FindDuplicates_returns_empty_when_there_is_no_overlap()
+    {
+        var duplicates = RecipientList.FindDuplicates(
+            to: ["alice@example.com"],
+            cc: ["bob@example.com"],
+            bcc: ["carol@example.com"]);
+
+        Assert.That(duplicates, Is.Empty);
+    }
+
+    [Test]
+    public void FindDuplicates_returns_an_address_duplicated_across_two_lists()
+    {
+        var duplicates = RecipientList.FindDuplicates(
+            to: ["alice@example.com"],
+            cc: ["alice@example.com"],
+            bcc: []);
+
+        Assert.That(duplicates, Is.EqualTo(new[] { "alice@example.com" }));
+    }
+
+    [Test]
+    public void FindDuplicates_returns_an_address_duplicated_across_all_three_lists()
+    {
+        var duplicates = RecipientList.FindDuplicates(
+            to: ["alice@example.com"],
+            cc: ["alice@example.com"],
+            bcc: ["alice@example.com"]);
+
+        Assert.That(duplicates, Is.EqualTo(new[] { "alice@example.com" }));
+    }
+
+    [Test]
+    public void FindDuplicates_matches_addresses_case_insensitively()
+    {
+        var duplicates = RecipientList.FindDuplicates(
+            to: ["Alice@example.com"],
+            cc: ["alice@example.com"],
+            bcc: []);
+
+        Assert.That(duplicates, Is.EqualTo(new[] { "Alice@example.com" }));
+    }
 }

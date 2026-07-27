@@ -39,9 +39,27 @@ public class OutlookGraphClientE2ETests
             Assert.Ignore("Set OUTLOOK_WRITEBACK_TEST_TO_ADDRESS to a real mailbox address to run this check.");
 
         var draftId = await _client!.CreateDraftAsync(
-            toAddress!,
+            [toAddress!],
             "Phase 0 spike - outlook-writeback",
             "Created by the Phase 0 spike integration test. Safe to delete.");
+
+        Assert.That(draftId, Is.Not.Null.And.Not.Empty);
+    }
+
+    [Test]
+    public async Task CreateDraftAsync_persists_multiple_to_cc_and_bcc_recipients()
+    {
+        var toAddress = Environment.GetEnvironmentVariable("OUTLOOK_WRITEBACK_TEST_TO_ADDRESS");
+
+        if (string.IsNullOrEmpty(toAddress))
+            Assert.Ignore("Set OUTLOOK_WRITEBACK_TEST_TO_ADDRESS to a real mailbox address to run this check.");
+
+        var draftId = await _client!.CreateDraftAsync(
+            [toAddress!],
+            "Phase 1 multi-recipient - outlook-writeback",
+            "Created by the multi-recipient integration test. Safe to delete.",
+            ccAddresses: [toAddress!],
+            bccAddresses: [toAddress!]);
 
         Assert.That(draftId, Is.Not.Null.And.Not.Empty);
     }

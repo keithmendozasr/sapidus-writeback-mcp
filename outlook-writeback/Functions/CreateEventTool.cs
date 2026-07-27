@@ -21,7 +21,11 @@ public sealed class CreateEventTool(OutlookGraphClient client)
         [McpToolProperty("end", "Event end time, ISO 8601 with a timezone offset.", isRequired: true)] string end,
         [McpToolProperty("location", "Event location, if any.")] string? location,
         [McpToolProperty("body", "Event notes/description, if any.")] string? body,
-        [McpToolProperty("attendees", "Comma-separated attendee email addresses, if any.")] string? attendees)
+        [McpToolProperty(
+            "attendees",
+            "Comma-separated attendee email addresses, if any. Note: unlike update_event's attendees (a JSON array), " +
+                "this is a comma-separated string - the two tools intentionally use different wire types for the same field name.")]
+            string? attendees)
     {
         var attendeeAddresses = string.IsNullOrWhiteSpace(attendees)
             ? null

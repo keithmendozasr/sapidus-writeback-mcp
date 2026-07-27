@@ -41,9 +41,38 @@ public class OutlookGraphClientIntegrationTests
             });
         });
 
-        var draftId = await CreateClient(handler).CreateDraftAsync("owner@example.com", "Subject", "Body");
+        var draftId = await CreateClient(handler).CreateDraftAsync(["owner@example.com"], "Subject", "Body");
 
         Assert.That(draftId, Is.EqualTo("AAMk-fake-draft-id"));
+    }
+
+    [Test]
+    public async Task CreateDraftAsync_serializes_multiple_to_cc_and_bcc_addresses()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(body, Does.Contain("alice@example.com"));
+                Assert.That(body, Does.Contain("bob@example.com"));
+                Assert.That(body, Does.Contain("carol@example.com"));
+                Assert.That(body, Does.Contain("dave@example.com"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await CreateClient(handler).CreateDraftAsync(
+            ["alice@example.com", "bob@example.com"],
+            "Subject",
+            "Body",
+            ccAddresses: ["carol@example.com"],
+            bccAddresses: ["dave@example.com"]);
     }
 
     [Test]
@@ -62,7 +91,7 @@ public class OutlookGraphClientIntegrationTests
         });
 
         await CreateClient(handler).CreateDraftAsync(
-            "owner@example.com",
+            ["owner@example.com"],
             "Subject",
             "<table></table>",
             isHtml: true);
@@ -89,6 +118,81 @@ public class OutlookGraphClientIntegrationTests
         });
 
         var updatedId = await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", subject: "New subject");
+
+        Assert.That(updatedId, Is.EqualTo("AAMk-fake-draft-id"));
+    }
+
+    [Test]
+    public async Task UpdateDraftAsync_serializes_an_empty_cc_array_as_an_explicit_empty_collection_to_clear_it()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("\"ccRecipients\":[]"));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", ccAddresses: []);
+    }
+
+    [Test]
+    public async Task UpdateDraftAsync_serializes_an_empty_bcc_array_as_an_explicit_empty_collection_to_clear_it()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("\"bccRecipients\":[]"));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", bccAddresses: []);
+    }
+
+    [Test]
+    public async Task UpdateDraftAsync_does_not_throw_when_only_cc_is_provided()
+    {
+        var handler = new StubHttpMessageHandler(request => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+        }));
+
+        var updatedId = await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", ccAddresses: ["bob@example.com"]);
+
+        Assert.That(updatedId, Is.EqualTo("AAMk-fake-draft-id"));
+    }
+
+    [Test]
+    public async Task UpdateDraftAsync_does_not_throw_when_only_bcc_is_provided()
+    {
+        var handler = new StubHttpMessageHandler(request => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+        }));
+
+        var updatedId = await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", bccAddresses: ["carol@example.com"]);
+
+        Assert.That(updatedId, Is.EqualTo("AAMk-fake-draft-id"));
+    }
+
+    [Test]
+    public async Task UpdateDraftAsync_does_not_throw_when_only_an_empty_cc_array_is_provided()
+    {
+        var handler = new StubHttpMessageHandler(request => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+        }));
+
+        var updatedId = await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", ccAddresses: []);
 
         Assert.That(updatedId, Is.EqualTo("AAMk-fake-draft-id"));
     }
@@ -163,6 +267,24 @@ public class OutlookGraphClientIntegrationTests
         var updatedId = await CreateClient(handler).UpdateEventAsync("AAkA-fake-event-id", subject: "New subject");
 
         Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_serializes_an_empty_attendees_array_as_an_explicit_empty_collection_to_clear_it()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("\"attendees\":[]"));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await CreateClient(handler).UpdateEventAsync("AAkA-fake-event-id", attendeeAddresses: []);
     }
 
     [Test]

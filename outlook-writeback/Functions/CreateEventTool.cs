@@ -8,7 +8,12 @@ public sealed class CreateEventTool(OutlookGraphClient client)
 {
     [Function(nameof(CreateEventTool))]
     public async Task<string> RunAsync(
-        [McpToolTrigger("create_event", "Create a calendar event on the user's calendar.")]
+        [McpToolTrigger(
+            "create_event",
+            "Create a calendar event on the user's calendar. " +
+                "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
+                "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
+                "Reconnect) before retrying - don't silently retry or fail.")]
             ToolInvocationContext context,
         [McpToolProperty("subject", "Event subject/title.", isRequired: true)] string subject,
         [McpToolProperty("start", "Event start time, ISO 8601 with a timezone offset (e.g. 2026-08-01T09:00:00-05:00).", isRequired: true)]

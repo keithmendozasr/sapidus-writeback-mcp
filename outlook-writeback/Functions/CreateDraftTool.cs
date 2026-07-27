@@ -8,7 +8,12 @@ public sealed class CreateDraftTool(OutlookGraphClient client)
 {
     [Function(nameof(CreateDraftTool))]
     public async Task<string> RunAsync(
-        [McpToolTrigger("create_draft", "Create an Outlook draft in the user's mailbox. Does not send it.")]
+        [McpToolTrigger(
+            "create_draft",
+            "Create an Outlook draft in the user's mailbox. Does not send it. " +
+                "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
+                "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
+                "Reconnect) before retrying - don't silently retry or fail.")]
             ToolInvocationContext context,
         [McpToolProperty("toAddress", "Recipient email address.", isRequired: true)] string toAddress,
         [McpToolProperty("subject", "Email subject.", isRequired: true)] string subject,

@@ -8,7 +8,12 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
 {
     [Function(nameof(UpdateEventTool))]
     public async Task<string> RunAsync(
-        [McpToolTrigger("update_event", "Edit fields on an existing calendar event.")]
+        [McpToolTrigger(
+            "update_event",
+            "Edit fields on an existing calendar event. " +
+                "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
+                "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
+                "Reconnect) before retrying - don't silently retry or fail.")]
             ToolInvocationContext context,
         [McpToolProperty("eventId", "The calendar event's ID.", isRequired: true)] string eventId,
         [McpToolProperty("subject", "New subject/title, if changing it.")] string? subject,

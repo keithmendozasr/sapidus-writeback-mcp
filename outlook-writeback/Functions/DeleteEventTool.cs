@@ -12,7 +12,10 @@ public sealed class DeleteEventTool(EventDeletionService deletionService)
             "delete_event",
             "Delete a calendar event. Two-step and confirmation-gated: call once with just " +
                 "eventId to preview the event and get a confirmationToken - this does NOT delete " +
-                "anything. Call again with the same eventId and that confirmationToken to actually delete.")]
+                "anything. Call again with the same eventId and that confirmationToken to actually delete. " +
+                "If either call fails with an authentication/401-style error, tell the user the outlook-writeback " +
+                "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
+                "Reconnect) before retrying - don't silently retry or fail.")]
             ToolInvocationContext context,
         [McpToolProperty("eventId", "The calendar event's ID.", isRequired: true)] string eventId,
         [McpToolProperty("confirmationToken", "Omit on the first call. Supply the token returned by the first call to confirm the delete.")]

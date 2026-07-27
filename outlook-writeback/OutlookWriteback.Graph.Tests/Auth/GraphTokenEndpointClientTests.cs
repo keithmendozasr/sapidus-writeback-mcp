@@ -47,4 +47,26 @@ public class GraphTokenEndpointClientTests
             Assert.That(response.ExpiresInSeconds, Is.EqualTo(3600));
         });
     }
+
+    [Test]
+    public async Task RedeemRefreshTokenAsync_includes_offline_access_in_the_requested_scope()
+    {
+        string? capturedForm = null;
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            capturedForm = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"access_token":"new-access-token","refresh_token":"new-refresh-token","expires_in":3600}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        });
+
+        await CreateClient(handler).RedeemRefreshTokenAsync("old-refresh-token", ["Mail.ReadWrite"]);
+
+        Assert.That(capturedForm, Does.Contain("scope=Mail.ReadWrite+offline_access"));
+    }
 }

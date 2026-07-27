@@ -57,6 +57,24 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildEvent_maps_attendees_when_provided()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup",
+            start,
+            start.AddHours(1),
+            location: null,
+            bodyText: null,
+            attendeeAddresses: ["alice@example.com", "bob@example.com"]);
+
+        Assert.That(
+            calendarEvent.Attendees?.Select(attendee => attendee.EmailAddress?.Address),
+            Is.EqualTo(new[] { "alice@example.com", "bob@example.com" }));
+    }
+
+    [Test]
     public void BuildUpdateDraftMessage_sets_only_the_subject_when_only_subject_changes()
     {
         var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: null, subject: "New subject", bodyText: null);

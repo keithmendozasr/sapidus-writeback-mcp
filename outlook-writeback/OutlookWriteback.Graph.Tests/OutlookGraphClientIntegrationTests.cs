@@ -117,6 +117,30 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task CreateEventAsync_serializes_attendees_when_provided()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("alice@example.com"));
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+
+        await CreateClient(handler).CreateEventAsync(
+            "Standup",
+            start,
+            start.AddHours(1),
+            attendeeAddresses: ["alice@example.com"]);
+    }
+
+    [Test]
     public async Task GetEventByIdAsync_sends_a_GET_to_me_events_id_and_returns_the_resolved_event()
     {
         var handler = new StubHttpMessageHandler(request =>

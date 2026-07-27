@@ -94,9 +94,10 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         DateTimeOffset end,
         string? location = null,
         string? bodyText = null,
+        IEnumerable<string>? attendeeAddresses = null,
         CancellationToken cancellationToken = default)
     {
-        var calendarEvent = BuildEvent(subject, start, end, location, bodyText);
+        var calendarEvent = BuildEvent(subject, start, end, location, bodyText, attendeeAddresses);
         var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -133,7 +134,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         DateTimeOffset start,
         DateTimeOffset end,
         string? location,
-        string? bodyText)
+        string? bodyText,
+        IEnumerable<string>? attendeeAddresses = null)
     {
         var calendarEvent = new Event
         {
@@ -148,8 +150,18 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         if (bodyText is not null)
             calendarEvent.Body = new ItemBody { ContentType = BodyType.Text, Content = bodyText };
 
+        if (attendeeAddresses is not null)
+            calendarEvent.Attendees = BuildAttendees(attendeeAddresses);
+
         return calendarEvent;
     }
+
+    private static List<Attendee> BuildAttendees(IEnumerable<string> attendeeAddresses) =>
+        [.. attendeeAddresses.Select(address => new Attendee
+        {
+            EmailAddress = new EmailAddress { Address = address },
+            Type = AttendeeType.Required,
+        })];
 
     private static DateTimeTimeZone ToGraphDateTime(DateTimeOffset value) => new()
     {

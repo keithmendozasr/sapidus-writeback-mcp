@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/outlook-writeback/">
+    <Project Path="outlook-writeback/OutlookWriteback.Graph.Tests/OutlookWriteback.Graph.Tests.csproj" />
+    <Project Path="outlook-writeback/OutlookWriteback.Graph/OutlookWriteback.Graph.csproj" />
+  </Folder>
+</Solution>

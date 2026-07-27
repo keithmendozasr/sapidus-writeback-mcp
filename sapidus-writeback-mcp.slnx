@@ -3,5 +3,6 @@
     <Project Path="outlook-writeback/OutlookWriteback.Graph.Tests/OutlookWriteback.Graph.Tests.csproj" />
     <Project Path="outlook-writeback/OutlookWriteback.Graph/OutlookWriteback.Graph.csproj" />
     <Project Path="outlook-writeback/OutlookWriteback.csproj" />
+    <Project Path="outlook-writeback/OutlookWriteback.Bootstrap/OutlookWriteback.Bootstrap.csproj" />
   </Folder>
 </Solution>

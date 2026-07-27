@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using OutlookWriteback.Graph.Tests.TestSupport;
@@ -20,5 +22,27 @@ public class OutlookGraphClientIntegrationTests
         var graphClient = new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider());
 
         return new OutlookGraphClient(graphClient);
+    }
+
+    [Test]
+    public async Task CreateDraftAsync_sends_a_POST_to_me_messages_and_returns_the_created_id()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Post));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/messages"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var draftId = await CreateClient(handler).CreateDraftAsync("owner@example.com", "Subject", "Body");
+
+        Assert.That(draftId, Is.EqualTo("AAMk-fake-draft-id"));
     }
 }

@@ -21,10 +21,13 @@ public sealed class DeleteEventTool(EventDeletionService deletionService)
         if (confirmationToken is null)
         {
             var pending = await deletionService.RequestDeletionAsync(eventId);
+            var when = pending.Start is null
+                ? "unknown time"
+                : $"{pending.Start.DateTime} to {pending.End?.DateTime} ({pending.Start.TimeZone})";
 
-            return $"About to delete \"{pending.Subject}\" (event ID: {eventId}). " +
-                "This has NOT been deleted yet. If the user confirms, call delete_event again with " +
-                $"eventId=\"{eventId}\" and confirmationToken=\"{pending.ConfirmationToken}\" to delete it.";
+            return $"About to delete \"{pending.Subject}\" ({when}, event ID: {eventId}). " +
+                "This has NOT been deleted yet. If the user confirms this is the right event, call " +
+                $"delete_event again with eventId=\"{eventId}\" and confirmationToken=\"{pending.ConfirmationToken}\" to delete it.";
         }
 
         var confirmed = await deletionService.ConfirmDeletionAsync(eventId, confirmationToken);

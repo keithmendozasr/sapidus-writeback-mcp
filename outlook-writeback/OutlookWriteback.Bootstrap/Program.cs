@@ -33,7 +33,7 @@ var authorizeUrl =
     $"&code_challenge={codeChallenge}" +
     "&code_challenge_method=S256";
 
-Console.WriteLine("Opening your browser to sign in to example.com...");
+Console.WriteLine("Opening your browser to sign in to your Microsoft 365 tenant...");
 Console.WriteLine("If it doesn't open automatically, visit this URL:");
 Console.WriteLine(authorizeUrl);
 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(authorizeUrl) { UseShellExecute = true });

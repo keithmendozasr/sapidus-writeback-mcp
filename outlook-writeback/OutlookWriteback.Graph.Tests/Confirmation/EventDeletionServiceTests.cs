@@ -10,7 +10,7 @@ namespace OutlookWriteback.Graph.Tests.Confirmation;
 /// <summary>
 /// Exercises EventDeletionService's two-step gating against a stubbed HTTP handler - same fast,
 /// offline tier as OutlookGraphClientIntegrationTests. The point of these tests is proving the
-/// DELETE only ever fires behind a valid confirmation token, per PRD.md section 6.
+/// DELETE only ever fires behind a valid confirmation token.
 /// </summary>
 [TestFixture]
 [Category("Integration")]

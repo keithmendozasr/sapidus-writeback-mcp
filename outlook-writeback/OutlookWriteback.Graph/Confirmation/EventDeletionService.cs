@@ -3,9 +3,9 @@ using Microsoft.Graph.Models;
 namespace OutlookWriteback.Graph.Confirmation;
 
 /// <summary>
-/// Orchestrates delete_event's two-step, confirmation-gated flow (PRD.md section 6): the first
-/// call fetches the event and issues a confirmation token without deleting anything; the second
-/// call only deletes once that same token validates for the same event ID.
+/// Orchestrates delete_event's two-step, confirmation-gated flow: the first call fetches the
+/// event and issues a confirmation token without deleting anything; the second call only
+/// deletes once that same token validates for the same event ID.
 /// </summary>
 public sealed class EventDeletionService(OutlookGraphClient client, DeleteConfirmationTokenService tokenService)
 {

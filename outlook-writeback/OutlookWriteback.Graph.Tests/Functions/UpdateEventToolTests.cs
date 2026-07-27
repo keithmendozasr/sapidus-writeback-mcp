@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using OutlookWriteback.Functions;
@@ -27,5 +28,24 @@ public class UpdateEventToolTests
         Assert.That(
             () => tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, ["alice@example.com", "   "]),
             Throws.ArgumentException);
+    }
+
+    [Test]
+    public async Task RunAsync_clears_attendees_when_an_empty_array_is_provided()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("\"attendees\":[]"));
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+        var tool = new UpdateEventTool(CreateClient(handler));
+
+        await tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, []);
     }
 }

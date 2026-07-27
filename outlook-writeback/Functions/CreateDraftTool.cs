@@ -4,15 +4,8 @@ using OutlookWriteback.Graph;
 
 namespace OutlookWriteback.Functions;
 
-public sealed class CreateDraftTool
+public sealed class CreateDraftTool(OutlookGraphClient client)
 {
-    private readonly OutlookGraphClient _client;
-
-    public CreateDraftTool(OutlookGraphClient client)
-    {
-        _client = client;
-    }
-
     [Function(nameof(CreateDraftTool))]
     public async Task<string> RunAsync(
         [McpToolTrigger("create_draft", "Create a plain-text Outlook draft in the user's mailbox. Does not send it.")]
@@ -21,7 +14,7 @@ public sealed class CreateDraftTool
         [McpToolProperty("subject", "Email subject.", isRequired: true)] string subject,
         [McpToolProperty("body", "Plain-text email body.", isRequired: true)] string body)
     {
-        var draftId = await _client.CreateDraftAsync(toAddress, subject, body);
+        var draftId = await client.CreateDraftAsync(toAddress, subject, body);
 
         return $"Draft created. ID: {draftId}. Open it in Outlook to review and send.";
     }

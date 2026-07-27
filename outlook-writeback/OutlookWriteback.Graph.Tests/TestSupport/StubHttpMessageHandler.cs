@@ -4,15 +4,8 @@ namespace OutlookWriteback.Graph.Tests.TestSupport;
 /// Fakes the HTTP boundary Microsoft.Graph's Kiota-generated client sends requests through, so
 /// tests exercise real request-building and response deserialization without a network call.
 /// </summary>
-internal sealed class StubHttpMessageHandler : HttpMessageHandler
+internal sealed class StubHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
 {
-    private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
-
-    public StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> respond)
-    {
-        _respond = respond;
-    }
-
     public HttpRequestMessage? LastRequest { get; private set; }
 
     protected override Task<HttpResponseMessage> SendAsync(
@@ -21,6 +14,6 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     {
         LastRequest = request;
 
-        return Task.FromResult(_respond(request));
+        return respond(request);
     }
 }

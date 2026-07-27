@@ -10,18 +10,9 @@ public sealed record GraphTokenResponse(string AccessToken, string? RefreshToken
 /// through MSAL - this app only ever redeems a single refresh token for a single user, so
 /// MSAL's multi-account token cache machinery has nothing to add here.
 /// </summary>
-public sealed class GraphTokenEndpointClient
+public sealed class GraphTokenEndpointClient(string tenantId, string clientId, HttpClient? httpClient = null)
 {
-    private readonly HttpClient _httpClient;
-    private readonly string _tenantId;
-    private readonly string _clientId;
-
-    public GraphTokenEndpointClient(string tenantId, string clientId, HttpClient? httpClient = null)
-    {
-        _tenantId = tenantId;
-        _clientId = clientId;
-        _httpClient = httpClient ?? new HttpClient();
-    }
+    private readonly HttpClient _httpClient = httpClient ?? new HttpClient();
 
     public Task<GraphTokenResponse> RedeemRefreshTokenAsync(
         string refreshToken,
@@ -32,7 +23,7 @@ public sealed class GraphTokenEndpointClient
             {
                 ["grant_type"] = "refresh_token",
                 ["refresh_token"] = refreshToken,
-                ["client_id"] = _clientId,
+                ["client_id"] = clientId,
                 ["scope"] = string.Join(' ', scopes.Append("offline_access")),
             },
             cancellationToken);
@@ -50,7 +41,7 @@ public sealed class GraphTokenEndpointClient
                 ["code"] = code,
                 ["code_verifier"] = codeVerifier,
                 ["redirect_uri"] = redirectUri,
-                ["client_id"] = _clientId,
+                ["client_id"] = clientId,
                 ["scope"] = string.Join(' ', scopes.Append("offline_access")),
             },
             cancellationToken);
@@ -60,7 +51,7 @@ public sealed class GraphTokenEndpointClient
         CancellationToken cancellationToken)
     {
         var response = await _httpClient.PostAsync(
-            $"https://login.microsoftonline.com/{_tenantId}/oauth2/v2.0/token",
+            $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token",
             new FormUrlEncodedContent(form),
             cancellationToken);
 

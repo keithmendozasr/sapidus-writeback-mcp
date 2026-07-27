@@ -2,14 +2,9 @@ using OutlookWriteback.Graph.Auth;
 
 namespace OutlookWriteback.Graph.Tests.TestSupport;
 
-internal sealed class FakeRefreshTokenStore : IRefreshTokenStore
+internal sealed class FakeRefreshTokenStore(string initialRefreshToken) : IRefreshTokenStore
 {
-    private string _refreshToken;
-
-    public FakeRefreshTokenStore(string initialRefreshToken)
-    {
-        _refreshToken = initialRefreshToken;
-    }
+    private string _refreshToken = initialRefreshToken;
 
     public int SaveCallCount { get; private set; }
 

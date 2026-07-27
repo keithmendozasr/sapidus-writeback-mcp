@@ -8,23 +8,14 @@ namespace OutlookWriteback.Graph.Auth;
 /// that can't pop a browser. Caches the last issued access token in memory with a safety
 /// buffer so it doesn't rotate the refresh token on every single Graph call.
 /// </summary>
-public sealed class SilentGraphCredential : TokenCredential
+public sealed class SilentGraphCredential(GraphTokenEndpointClient tokenEndpointClient, IRefreshTokenStore store, string[] scopes)
+    : TokenCredential
 {
     private static readonly TimeSpan RefreshBuffer = TimeSpan.FromMinutes(5);
 
-    private readonly GraphTokenEndpointClient _tokenEndpointClient;
-    private readonly IRefreshTokenStore _store;
-    private readonly string[] _scopes;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private AccessToken? _cachedToken;
-
-    public SilentGraphCredential(GraphTokenEndpointClient tokenEndpointClient, IRefreshTokenStore store, string[] scopes)
-    {
-        _tokenEndpointClient = tokenEndpointClient;
-        _store = store;
-        _scopes = scopes;
-    }
 
     // requestContext.Scopes is ignored deliberately - this credential always redeems the
     // fixed Mail.ReadWrite/Calendars.ReadWrite scopes the app was registered for.
@@ -45,11 +36,11 @@ public sealed class SilentGraphCredential : TokenCredential
             if (_cachedToken is { } recheck && recheck.ExpiresOn > DateTimeOffset.UtcNow + RefreshBuffer)
                 return recheck;
 
-            var currentRefreshToken = await _store.GetRefreshTokenAsync(cancellationToken);
-            var response = await _tokenEndpointClient.RedeemRefreshTokenAsync(currentRefreshToken, _scopes, cancellationToken);
+            var currentRefreshToken = await store.GetRefreshTokenAsync(cancellationToken);
+            var response = await tokenEndpointClient.RedeemRefreshTokenAsync(currentRefreshToken, scopes, cancellationToken);
 
             if (response.RefreshToken is { } rotated)
-                await _store.SaveRefreshTokenAsync(rotated, cancellationToken);
+                await store.SaveRefreshTokenAsync(rotated, cancellationToken);
 
             _cachedToken = new AccessToken(response.AccessToken, DateTimeOffset.UtcNow.AddSeconds(response.ExpiresInSeconds));
 

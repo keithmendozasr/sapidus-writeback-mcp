@@ -35,10 +35,10 @@ public class OutlookGraphClientIntegrationTests
                 Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/messages"));
             });
 
-            return new HttpResponseMessage(HttpStatusCode.Created)
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)
             {
                 Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
-            };
+            });
         });
 
         var draftId = await CreateClient(handler).CreateDraftAsync("owner@example.com", "Subject", "Body");
@@ -49,9 +49,9 @@ public class OutlookGraphClientIntegrationTests
     [Test]
     public async Task UpdateDraftAsync_sends_a_PATCH_to_me_messages_id_and_returns_the_updated_id()
     {
-        var handler = new StubHttpMessageHandler(request =>
+        var handler = new StubHttpMessageHandler(async request =>
         {
-            var body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty;
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
 
             Assert.Multiple(() =>
             {
@@ -82,10 +82,10 @@ public class OutlookGraphClientIntegrationTests
                 Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events"));
             });
 
-            return new HttpResponseMessage(HttpStatusCode.Created)
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)
             {
                 Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
-            };
+            });
         });
 
         var start = DateTimeOffset.UtcNow.AddDays(1);
@@ -105,13 +105,13 @@ public class OutlookGraphClientIntegrationTests
                 Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events/AAkA-connector-event-id"));
             });
 
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
                     """{"id":"AAkA-connector-event-id","subject":"Standup"}""",
                     Encoding.UTF8,
                     "application/json"),
-            };
+            });
         });
 
         var resolved = await CreateClient(handler).GetEventByIdAsync("AAkA-connector-event-id");

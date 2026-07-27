@@ -4,15 +4,8 @@ using OutlookWriteback.Graph;
 
 namespace OutlookWriteback.Functions;
 
-public sealed class UpdateDraftTool
+public sealed class UpdateDraftTool(OutlookGraphClient client)
 {
-    private readonly OutlookGraphClient _client;
-
-    public UpdateDraftTool(OutlookGraphClient client)
-    {
-        _client = client;
-    }
-
     [Function(nameof(UpdateDraftTool))]
     public async Task<string> RunAsync(
         [McpToolTrigger("update_draft", "Edit fields on an existing Outlook draft. Does not send it.")]
@@ -22,7 +15,7 @@ public sealed class UpdateDraftTool
         [McpToolProperty("subject", "New subject, if changing it.")] string? subject,
         [McpToolProperty("body", "New plain-text body, if changing it.")] string? body)
     {
-        var updatedId = await _client.UpdateDraftAsync(draftId, toAddress, subject, body);
+        var updatedId = await client.UpdateDraftAsync(draftId, toAddress, subject, body);
 
         return $"Draft updated. ID: {updatedId}.";
     }

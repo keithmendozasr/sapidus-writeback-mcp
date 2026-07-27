@@ -8,24 +8,17 @@ namespace OutlookWriteback.Auth;
 /// not a Key Vault-reference app setting - the app must be able to write the rotated token
 /// back after every redemption, and app-setting references are read-only.
 /// </summary>
-public sealed class KeyVaultRefreshTokenStore : IRefreshTokenStore
+public sealed class KeyVaultRefreshTokenStore(SecretClient secretClient) : IRefreshTokenStore
 {
     private const string SecretName = "graph-refresh-token";
 
-    private readonly SecretClient _secretClient;
-
-    public KeyVaultRefreshTokenStore(SecretClient secretClient)
-    {
-        _secretClient = secretClient;
-    }
-
     public async Task<string> GetRefreshTokenAsync(CancellationToken cancellationToken = default)
     {
-        var secret = await _secretClient.GetSecretAsync(SecretName, cancellationToken: cancellationToken);
+        var secret = await secretClient.GetSecretAsync(SecretName, cancellationToken: cancellationToken);
 
         return secret.Value.Value;
     }
 
     public async Task SaveRefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default) =>
-        await _secretClient.SetSecretAsync(SecretName, refreshToken, cancellationToken);
+        await secretClient.SetSecretAsync(SecretName, refreshToken, cancellationToken);
 }

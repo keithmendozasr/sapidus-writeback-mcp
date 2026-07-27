@@ -13,15 +13,8 @@ namespace OutlookWriteback.Graph;
 /// self-registered Entra app. Not the full create_draft/create_event/etc. tool surface —
 /// that lands in Phase 1-2 once this is verified.
 /// </summary>
-public sealed class OutlookGraphClient
+public sealed class OutlookGraphClient(GraphServiceClient client)
 {
-    private readonly GraphServiceClient _client;
-
-    public OutlookGraphClient(GraphServiceClient client)
-    {
-        _client = client;
-    }
-
     /// <summary>
     /// Requires the Entra app to be registered as a public client with
     /// "http://localhost" listed under Mobile and desktop redirect URIs - a
@@ -72,7 +65,7 @@ public sealed class OutlookGraphClient
         CancellationToken cancellationToken = default)
     {
         var message = BuildDraftMessage(toAddress, subject, bodyText);
-        var created = await _client.Me.Messages.PostAsync(message, cancellationToken: cancellationToken);
+        var created = await client.Me.Messages.PostAsync(message, cancellationToken: cancellationToken);
 
         return created?.Id;
     }
@@ -88,7 +81,7 @@ public sealed class OutlookGraphClient
             throw new ArgumentException("At least one of toAddress, subject, or bodyText must be provided.");
 
         var message = BuildUpdateDraftMessage(toAddress, subject, bodyText);
-        var updated = await _client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
+        var updated = await client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
 
         return updated?.Id ?? draftId;
     }
@@ -102,13 +95,13 @@ public sealed class OutlookGraphClient
         CancellationToken cancellationToken = default)
     {
         var calendarEvent = BuildEvent(subject, start, end, location, bodyText);
-        var created = await _client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
+        var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return created?.Id;
     }
 
     public Task<Event?> GetEventByIdAsync(string eventId, CancellationToken cancellationToken = default) =>
-        _client.Me.Events[eventId].GetAsync(cancellationToken: cancellationToken);
+        client.Me.Events[eventId].GetAsync(cancellationToken: cancellationToken);
 
     internal static Message BuildDraftMessage(string toAddress, string subject, string bodyText) => new()
     {

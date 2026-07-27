@@ -15,9 +15,9 @@ public class GraphTokenEndpointClientTests
     [Test]
     public async Task RedeemRefreshTokenAsync_posts_grant_type_refresh_token_and_returns_parsed_tokens()
     {
-        var handler = new StubHttpMessageHandler(request =>
+        var handler = new StubHttpMessageHandler(async request =>
         {
-            var form = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var form = await request.Content!.ReadAsStringAsync();
 
             Assert.Multiple(() =>
             {
@@ -52,9 +52,9 @@ public class GraphTokenEndpointClientTests
     public async Task RedeemRefreshTokenAsync_includes_offline_access_in_the_requested_scope()
     {
         string? capturedForm = null;
-        var handler = new StubHttpMessageHandler(request =>
+        var handler = new StubHttpMessageHandler(async request =>
         {
-            capturedForm = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            capturedForm = await request.Content!.ReadAsStringAsync();
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -73,13 +73,13 @@ public class GraphTokenEndpointClientTests
     [Test]
     public void RedeemRefreshTokenAsync_throws_when_the_token_endpoint_returns_an_error_status()
     {
-        var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
         {
             Content = new StringContent(
                 """{"error":"invalid_grant","error_description":"Refresh token has expired."}""",
                 Encoding.UTF8,
                 "application/json"),
-        });
+        }));
 
         Assert.That(
             () => CreateClient(handler).RedeemRefreshTokenAsync("expired-refresh-token", ["Mail.ReadWrite"]),
@@ -89,9 +89,9 @@ public class GraphTokenEndpointClientTests
     [Test]
     public async Task ExchangeAuthorizationCodeAsync_posts_grant_type_authorization_code_with_the_code_verifier()
     {
-        var handler = new StubHttpMessageHandler(request =>
+        var handler = new StubHttpMessageHandler(async request =>
         {
-            var form = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var form = await request.Content!.ReadAsStringAsync();
 
             Assert.Multiple(() =>
             {

@@ -1,0 +1,18 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    }
+  },
+  "extensions": {
+    "mcp": {
+      "serverName": "outlook-writeback-mcp",
+      "serverVersion": "1.0.0",
+      "instructions": "Write-only Outlook draft tools for the user's mailbox. create_draft creates a plain-text draft; update_draft edits fields on an existing draft. Neither tool can send mail - there is no send capability."
+    }
+  }
+}

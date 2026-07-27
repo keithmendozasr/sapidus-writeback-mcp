@@ -163,6 +163,37 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             Type = AttendeeType.Required,
         })];
 
+    internal static Event BuildUpdateEvent(
+        string? subject,
+        DateTimeOffset? start,
+        DateTimeOffset? end,
+        string? location,
+        string? bodyText,
+        IEnumerable<string>? attendeeAddresses)
+    {
+        var calendarEvent = new Event();
+
+        if (subject is not null)
+            calendarEvent.Subject = subject;
+
+        if (start is not null)
+            calendarEvent.Start = ToGraphDateTime(start.Value);
+
+        if (end is not null)
+            calendarEvent.End = ToGraphDateTime(end.Value);
+
+        if (location is not null)
+            calendarEvent.Location = new Location { DisplayName = location };
+
+        if (bodyText is not null)
+            calendarEvent.Body = new ItemBody { ContentType = BodyType.Text, Content = bodyText };
+
+        if (attendeeAddresses is not null)
+            calendarEvent.Attendees = BuildAttendees(attendeeAddresses);
+
+        return calendarEvent;
+    }
+
     private static DateTimeTimeZone ToGraphDateTime(DateTimeOffset value) => new()
     {
         DateTime = value.UtcDateTime.ToString("o"),

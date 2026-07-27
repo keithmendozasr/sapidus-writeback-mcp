@@ -12,7 +12,10 @@
     "mcp": {
       "serverName": "outlook-writeback-mcp",
       "serverVersion": "1.0.0",
-      "instructions": "Write-only Outlook draft tools for the user's mailbox. create_draft creates a draft; update_draft edits fields on an existing draft. Both default to a plain-text body but accept an isHtml flag to send HTML instead (e.g. for a table). Neither tool can send mail - there is no send capability."
+      "instructions": "Write-only Outlook draft tools for the user's mailbox. create_draft creates a draft; update_draft edits fields on an existing draft. Both default to a plain-text body but accept an isHtml flag to send HTML instead (e.g. for a table). Neither tool can send mail - there is no send capability.",
+      "system": {
+        "webhookAuthorizationLevel": "Anonymous"
+      }
     }
   }
 }

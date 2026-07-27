@@ -18,7 +18,11 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.4.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.50.0" />
-    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="3.1.2" />
+    <!-- Pinned to the 2.x line, not the newer 3.1.2 major release: Worker.ApplicationInsights
+         2.50.0 transitively depends on Microsoft.ApplicationInsights.PerfCounterCollector
+         2.23.0 (AI SDK 2.x). Forcing 3.1.2 loads an incompatible ITelemetryInitializer and
+         crashes the isolated worker process with a TypeLoadException at startup. -->
+    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.23.0" />
   </ItemGroup>
 
   <ItemGroup>

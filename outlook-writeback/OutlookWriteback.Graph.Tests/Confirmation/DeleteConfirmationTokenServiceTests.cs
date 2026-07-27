@@ -70,4 +70,16 @@ public class DeleteConfirmationTokenServiceTests
 
         Assert.That(service.Validate("AAkA-fake-event-id", token), Is.False);
     }
+
+    [Test]
+    [TestCase("")]
+    [TestCase("not-a-token")]
+    [TestCase("too.many.parts")]
+    [TestCase("not-valid-base64!.also-not-valid-base64!")]
+    public void Validate_rejects_malformed_tokens_without_throwing(string malformedToken)
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        Assert.That(service.Validate("AAkA-fake-event-id", malformedToken), Is.False);
+    }
 }

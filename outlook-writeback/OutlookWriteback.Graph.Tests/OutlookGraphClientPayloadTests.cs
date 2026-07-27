@@ -4,6 +4,7 @@ using OutlookWriteback.Graph;
 namespace OutlookWriteback.Graph.Tests;
 
 [TestFixture]
+[Category("Unit")]
 public class OutlookGraphClientPayloadTests
 {
     [Test]

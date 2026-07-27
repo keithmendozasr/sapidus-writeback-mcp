@@ -3,14 +3,15 @@ using OutlookWriteback.Graph;
 namespace OutlookWriteback.Graph.Tests;
 
 /// <summary>
-/// PRD Phase 0 live checks against the real Graph API. Require the "Outlook Writeback MCP"
+/// True end-to-end tier: real Graph API, real mailbox. Require the "Outlook Writeback MCP"
 /// Entra app (Mail.ReadWrite + Calendars.ReadWrite, admin consent granted) and are skipped
 /// via Assert.Ignore when the environment variables below aren't set - they cannot run in CI
-/// or without the user's own tenant credentials.
+/// or without the user's own tenant credentials. For fast, offline, network-free checks against
+/// OutlookGraphClient's request/response handling, see OutlookGraphClientIntegrationTests.
 /// </summary>
 [TestFixture]
-[Category("Integration")]
-public class OutlookGraphClientIntegrationTests
+[Category("E2E")]
+public class OutlookGraphClientE2ETests
 {
     private OutlookGraphClient? _client;
 

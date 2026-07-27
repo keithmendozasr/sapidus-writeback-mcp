@@ -125,6 +125,9 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         return updated?.Id ?? eventId;
     }
 
+    public Task DeleteEventAsync(string eventId, CancellationToken cancellationToken = default) =>
+        client.Me.Events[eventId].DeleteAsync(cancellationToken: cancellationToken);
+
     internal static Message BuildDraftMessage(string toAddress, string subject, string bodyText, bool isHtml = false) => new()
     {
         Subject = subject,

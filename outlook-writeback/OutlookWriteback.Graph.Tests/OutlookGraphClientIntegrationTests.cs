@@ -166,6 +166,23 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task DeleteEventAsync_sends_a_DELETE_to_me_events_id()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Delete));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events/AAkA-fake-event-id"));
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+
+        await CreateClient(handler).DeleteEventAsync("AAkA-fake-event-id");
+    }
+
+    [Test]
     public async Task GetEventByIdAsync_sends_a_GET_to_me_events_id_and_returns_the_resolved_event()
     {
         var handler = new StubHttpMessageHandler(request =>

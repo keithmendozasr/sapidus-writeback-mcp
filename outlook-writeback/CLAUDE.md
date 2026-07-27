@@ -1,0 +1,37 @@
+# CLAUDE.md — outlook-writeback
+
+Server-specific guidance for working in this folder. Cross-server rules live in the root `CLAUDE.md` and `../REPO-CONVENTIONS.md` — read those first.
+
+## Status
+
+All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. Full implementation history and design rationale live in `docs/archive/` (completed/superseded specs) and `DEPLOYMENT.md` (the operational runbook) — not duplicated here. In-progress specs, if any, live in `docs/active/`.
+
+## Runtime
+
+.NET 10 (`net10.0`), isolated worker model.
+
+## Build/test commands
+
+Run from the repo root (`sapidus-writeback-mcp.slnx`):
+
+- `dotnet build` — builds all four projects (`OutlookWriteback.Graph`, `OutlookWriteback.Graph.Tests`, `OutlookWriteback` (the Functions app), `OutlookWriteback.Bootstrap`).
+- `dotnet test` — runs all three NUnit tiers:
+  - `Category=Unit` — pure payload-mapping logic and the non-interactive auth machinery (`GraphTokenEndpointClient`, `SilentGraphCredential`), no I/O.
+  - `Category=Integration` (`OutlookGraphClientIntegrationTests`) — exercises `OutlookGraphClient`'s real request-building/response-deserialization through the Graph SDK against a stubbed `HttpMessageHandler` (`TestSupport/StubHttpMessageHandler.cs`). No network, no credentials, fast (~1s total) — this is the tier for the normal dev loop.
+  - `Category=E2E` (`OutlookGraphClientE2ETests`) — real Microsoft Graph, real mailbox. Self-skips via `Assert.Ignore` unless the environment variables below are set; requires the real "Outlook Writeback MCP" Entra app registration and admin consent from the user. Cannot run in CI:
+    - `OUTLOOK_WRITEBACK_TENANT_ID` / `OUTLOOK_WRITEBACK_CLIENT_ID` — the Entra app's IDs.
+    - `OUTLOOK_WRITEBACK_TEST_TO_ADDRESS` — a real mailbox address, for the draft-creation check.
+    - `OUTLOOK_WRITEBACK_CONNECTOR_EVENT_ID` — a real event ID from the M365 connector's calendar search, for PRD open question #2 (shared `/me/events` ID space).
+- `dotnet test --filter "Category!=E2E"` — Unit + Integration only, safe and fast for CI.
+- `func start` (from this folder) — local smoke test against real Azure dependencies (Key Vault, Entra app) via `local.settings.json` + your own `az login` session; prints the discovered MCP tool list on startup, a much faster feedback loop than deploy-and-poll.
+
+The E2E tier uses `InteractiveBrowserCredential`, which requires the "Outlook Writeback MCP" Entra app to be registered as a **public client** with `http://localhost` listed under **Mobile and desktop** redirect URIs (not a web/confidential registration) — see the doc comment on `OutlookGraphClient.CreateWithInteractiveBrowserAuth`. This tier still only hits the library directly, not the deployed Azure endpoint — extending it to a deployed-E2E tier (speaking real MCP Streamable HTTP to the live endpoint) is a reasonable stretch item, not yet built.
+
+## Key points for a future implementer
+
+- Scopes: `Mail.ReadWrite` and `Calendars.ReadWrite` only. No `Mail.Send` — the server can create/update drafts but structurally cannot send.
+- Tools: `create_draft`, `update_draft`, `create_event`, `update_event`, `delete_event`.
+- `delete_event` is the only destructive tool and is two-step, confirmation-gated: the first call returns event details + a confirmation token and does nothing destructive; the actual `DELETE` only happens on a second call that echoes that token back.
+- Drafts with attachments are rejected outright (no attachment support).
+- Event/draft IDs are expected to come from the M365 connector's read/search tools in the same conversation (shared Graph ID space) — this server never implements its own read/search.
+- Compute: Azure Functions, C# (isolated worker model), HTTP trigger, Flex Consumption plan.

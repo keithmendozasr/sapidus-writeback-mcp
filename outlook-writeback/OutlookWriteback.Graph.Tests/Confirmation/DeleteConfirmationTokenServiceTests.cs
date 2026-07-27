@@ -58,4 +58,16 @@ public class DeleteConfirmationTokenServiceTests
 
         Assert.That(service.Validate("AAkA-fake-event-id", tampered), Is.False);
     }
+
+    [Test]
+    public void Validate_rejects_a_token_after_its_ttl_has_elapsed()
+    {
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var service = new DeleteConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), timeProvider);
+
+        var token = service.Issue("AAkA-fake-event-id");
+        timeProvider.Now = timeProvider.Now.AddMinutes(6);
+
+        Assert.That(service.Validate("AAkA-fake-event-id", token), Is.False);
+    }
 }

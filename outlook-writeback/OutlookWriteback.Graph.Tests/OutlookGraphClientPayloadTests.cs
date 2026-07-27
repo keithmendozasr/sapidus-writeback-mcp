@@ -185,6 +185,48 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildUpdateEvent_sets_only_start_and_end_when_only_the_time_changes()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+        var end = start.AddHours(1);
+
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: start,
+            end: end,
+            location: null,
+            bodyText: null,
+            attendeeAddresses: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Subject, Is.Null);
+            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(start.UtcDateTime.ToString("o")));
+            Assert.That(calendarEvent.End?.DateTime, Is.EqualTo(end.UtcDateTime.ToString("o")));
+            Assert.That(calendarEvent.Location, Is.Null);
+        });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_sets_only_the_location_when_only_location_changes()
+    {
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: null,
+            end: null,
+            location: "Conference Room B",
+            bodyText: null,
+            attendeeAddresses: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Subject, Is.Null);
+            Assert.That(calendarEvent.Location?.DisplayName, Is.EqualTo("Conference Room B"));
+            Assert.That(calendarEvent.Start, Is.Null);
+        });
+    }
+
+    [Test]
     public void UpdateDraftAsync_throws_when_no_fields_are_provided()
     {
         var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };

@@ -2,6 +2,10 @@
   "IsEncrypted": false,
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true"
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "OUTLOOK_WRITEBACK_TENANT_ID": "<App registration tenant>",
+    "OUTLOOK_WRITEBACK_CLIENT_ID": "<App registration client>",
+    "OUTLOOK_WRITEBACK_KEY_VAULT_URI": "<Azure function's Keyvault URL>",
+    "OUTLOOK_WRITEBACK_CONFIRMATION_SIGNING_KEY": "<base64 HMAC key for delete_event confirmation tokens>"
   }
 }

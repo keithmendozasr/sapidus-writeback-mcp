@@ -11,8 +11,8 @@
   "extensions": {
     "mcp": {
       "serverName": "outlook-writeback-mcp",
-      "serverVersion": "1.0.0",
-      "instructions": "Write-only Outlook draft tools for the user's mailbox. create_draft creates a draft; update_draft edits fields on an existing draft. Both default to a plain-text body but accept an isHtml flag to send HTML instead (e.g. for a table). Neither tool can send mail - there is no send capability.",
+      "serverVersion": "0.1.0",
+      "instructions": "Write-only Outlook mailbox and calendar tools. create_draft creates a draft; update_draft edits fields on an existing draft. Both default to a plain-text body but accept an isHtml flag to send HTML instead (e.g. for a table). Neither can send mail - there is no send capability. create_event and update_event write calendar events. delete_event is two-step and confirmation-gated: the first call returns the event's details plus a confirmation token and deletes nothing; pass that token back on a second call to actually delete. This server has no read or search tools - obtain draft and event IDs from the Microsoft 365 connector's read/search tools, which share the same Graph ID space.",
       "system": {
         "webhookAuthorizationLevel": "Anonymous"
       }

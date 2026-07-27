@@ -27,6 +27,18 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildDraftMessage_sets_html_content_type_when_isHtml_is_true()
+    {
+        var message = OutlookGraphClient.BuildDraftMessage(
+            "owner@example.com",
+            "Metrics for period ending July 8, 2026",
+            "<table><tr><td>2026-07-08</td></tr></table>",
+            isHtml: true);
+
+        Assert.That(message.Body?.ContentType, Is.EqualTo(BodyType.Html));
+    }
+
+    [Test]
     public void BuildEvent_maps_times_to_utc_and_omits_optional_fields_when_absent()
     {
         var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
@@ -99,6 +111,18 @@ public class OutlookGraphClientPayloadTests
             Assert.That(message.Body?.Content, Is.EqualTo("New body text."));
             Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
         });
+    }
+
+    [Test]
+    public void BuildUpdateDraftMessage_sets_html_content_type_when_isHtml_is_true()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(
+            toAddress: null,
+            subject: null,
+            bodyText: "<table><tr><td>2026-07-08</td></tr></table>",
+            isHtml: true);
+
+        Assert.That(message.Body?.ContentType, Is.EqualTo(BodyType.Html));
     }
 
     [Test]

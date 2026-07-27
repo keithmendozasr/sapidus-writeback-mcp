@@ -47,6 +47,28 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task CreateDraftAsync_serializes_html_content_type_when_isHtml_is_true()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("\"contentType\":\"html\""));
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        await CreateClient(handler).CreateDraftAsync(
+            "owner@example.com",
+            "Subject",
+            "<table></table>",
+            isHtml: true);
+    }
+
+    [Test]
     public async Task UpdateDraftAsync_sends_a_PATCH_to_me_messages_id_and_returns_the_updated_id()
     {
         var handler = new StubHttpMessageHandler(async request =>

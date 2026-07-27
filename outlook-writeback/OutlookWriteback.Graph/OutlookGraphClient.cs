@@ -62,9 +62,10 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string toAddress,
         string subject,
         string bodyText,
+        bool isHtml = false,
         CancellationToken cancellationToken = default)
     {
-        var message = BuildDraftMessage(toAddress, subject, bodyText);
+        var message = BuildDraftMessage(toAddress, subject, bodyText, isHtml);
         var created = await client.Me.Messages.PostAsync(message, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -75,12 +76,13 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? toAddress = null,
         string? subject = null,
         string? bodyText = null,
+        bool isHtml = false,
         CancellationToken cancellationToken = default)
     {
         if (toAddress is null && subject is null && bodyText is null)
             throw new ArgumentException("At least one of toAddress, subject, or bodyText must be provided.");
 
-        var message = BuildUpdateDraftMessage(toAddress, subject, bodyText);
+        var message = BuildUpdateDraftMessage(toAddress, subject, bodyText, isHtml);
         var updated = await client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
 
         return updated?.Id ?? draftId;
@@ -103,14 +105,14 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
     public Task<Event?> GetEventByIdAsync(string eventId, CancellationToken cancellationToken = default) =>
         client.Me.Events[eventId].GetAsync(cancellationToken: cancellationToken);
 
-    internal static Message BuildDraftMessage(string toAddress, string subject, string bodyText) => new()
+    internal static Message BuildDraftMessage(string toAddress, string subject, string bodyText, bool isHtml = false) => new()
     {
         Subject = subject,
-        Body = new ItemBody { ContentType = BodyType.Text, Content = bodyText },
+        Body = new ItemBody { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = bodyText },
         ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = toAddress } }],
     };
 
-    internal static Message BuildUpdateDraftMessage(string? toAddress, string? subject, string? bodyText)
+    internal static Message BuildUpdateDraftMessage(string? toAddress, string? subject, string? bodyText, bool isHtml = false)
     {
         var message = new Message();
 
@@ -118,7 +120,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             message.Subject = subject;
 
         if (bodyText is not null)
-            message.Body = new ItemBody { ContentType = BodyType.Text, Content = bodyText };
+            message.Body = new ItemBody { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = bodyText };
 
         if (toAddress is not null)
             message.ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = toAddress } }];

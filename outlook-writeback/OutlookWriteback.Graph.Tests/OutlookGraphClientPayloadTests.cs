@@ -54,4 +54,18 @@ public class OutlookGraphClientPayloadTests
             Assert.That(message.ToRecipients, Is.Null);
         });
     }
+
+    [Test]
+    public void BuildUpdateDraftMessage_sets_only_the_body_when_only_body_changes()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: null, subject: null, bodyText: "New body text.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Subject, Is.Null);
+            Assert.That(message.Body?.ContentType, Is.EqualTo(BodyType.Text));
+            Assert.That(message.Body?.Content, Is.EqualTo("New body text."));
+            Assert.That(message.ToRecipients, Is.Null);
+        });
+    }
 }

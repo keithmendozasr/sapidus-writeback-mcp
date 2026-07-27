@@ -80,6 +80,22 @@ public sealed class OutlookGraphClient
         ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = toAddress } }],
     };
 
+    internal static Message BuildUpdateDraftMessage(string? toAddress, string? subject, string? bodyText)
+    {
+        var message = new Message();
+
+        if (subject is not null)
+            message.Subject = subject;
+
+        if (bodyText is not null)
+            message.Body = new ItemBody { ContentType = BodyType.Text, Content = bodyText };
+
+        if (toAddress is not null)
+            message.ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = toAddress } }];
+
+        return message;
+    }
+
     internal static Event BuildEvent(
         string subject,
         DateTimeOffset start,

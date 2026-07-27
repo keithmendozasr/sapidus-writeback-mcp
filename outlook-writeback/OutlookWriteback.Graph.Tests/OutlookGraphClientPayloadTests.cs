@@ -41,4 +41,17 @@ public class OutlookGraphClientPayloadTests
             Assert.That(calendarEvent.Body, Is.Null);
         });
     }
+
+    [Test]
+    public void BuildUpdateDraftMessage_sets_only_the_subject_when_only_subject_changes()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: null, subject: "New subject", bodyText: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Subject, Is.EqualTo("New subject"));
+            Assert.That(message.Body, Is.Null);
+            Assert.That(message.ToRecipients, Is.Null);
+        });
+    }
 }

@@ -1,7 +1,7 @@
 # PRD: Self-Hosted Outlook Mailbox-Write MCP Server
 
 **Owner:** Keith Mendoza
-**Status:** Active
+**Status:** Completed
 **Target platform:** Azure
 **Language:** C#
 **Target clients:** Claude Desktop, Claude Cowork, Claude Code CLI

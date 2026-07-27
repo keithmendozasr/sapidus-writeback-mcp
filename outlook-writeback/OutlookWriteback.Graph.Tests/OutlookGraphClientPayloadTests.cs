@@ -1,4 +1,6 @@
+using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Microsoft.Kiota.Abstractions.Authentication;
 using OutlookWriteback.Graph;
 
 namespace OutlookWriteback.Graph.Tests;
@@ -97,5 +99,16 @@ public class OutlookGraphClientPayloadTests
             Assert.That(message.Body?.Content, Is.EqualTo("New body text."));
             Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
         });
+    }
+
+    [Test]
+    public void UpdateDraftAsync_throws_when_no_fields_are_provided()
+    {
+        var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
+        var client = new OutlookGraphClient(new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider()));
+
+        Assert.That(
+            () => client.UpdateDraftAsync("AAMk-fake-draft-id"),
+            Throws.ArgumentException);
     }
 }

@@ -23,6 +23,12 @@
          2.23.0 (AI SDK 2.x). Forcing 3.1.2 loads an incompatible ITelemetryInitializer and
          crashes the isolated worker process with a TypeLoadException at startup. -->
     <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.23.0" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="OutlookWriteback.Graph\OutlookWriteback.Graph.csproj" />
   </ItemGroup>
 
   <ItemGroup>

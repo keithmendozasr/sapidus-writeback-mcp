@@ -227,6 +227,53 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildUpdateEvent_sets_only_the_attendees_when_only_attendees_change()
+    {
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: null,
+            end: null,
+            location: null,
+            bodyText: null,
+            attendeeAddresses: ["alice@example.com"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Subject, Is.Null);
+            Assert.That(
+                calendarEvent.Attendees?.Select(attendee => attendee.EmailAddress?.Address),
+                Is.EqualTo(new[] { "alice@example.com" }));
+        });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_sets_all_fields_when_all_are_provided()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+        var end = start.AddHours(1);
+
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: "New subject",
+            start: start,
+            end: end,
+            location: "Conference Room B",
+            bodyText: "New notes.",
+            attendeeAddresses: ["alice@example.com"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Subject, Is.EqualTo("New subject"));
+            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(start.UtcDateTime.ToString("o")));
+            Assert.That(calendarEvent.End?.DateTime, Is.EqualTo(end.UtcDateTime.ToString("o")));
+            Assert.That(calendarEvent.Location?.DisplayName, Is.EqualTo("Conference Room B"));
+            Assert.That(calendarEvent.Body?.Content, Is.EqualTo("New notes."));
+            Assert.That(
+                calendarEvent.Attendees?.Select(attendee => attendee.EmailAddress?.Address),
+                Is.EqualTo(new[] { "alice@example.com" }));
+        });
+    }
+
+    [Test]
     public void UpdateDraftAsync_throws_when_no_fields_are_provided()
     {
         var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using OutlookWriteback.Auth;
 using OutlookWriteback.Graph;
 using OutlookWriteback.Graph.Auth;
+using OutlookWriteback.Graph.Confirmation;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -25,6 +26,9 @@ var clientId = Environment.GetEnvironmentVariable("OUTLOOK_WRITEBACK_CLIENT_ID")
 var keyVaultUri = Environment.GetEnvironmentVariable("OUTLOOK_WRITEBACK_KEY_VAULT_URI")
     ?? throw new InvalidOperationException("OUTLOOK_WRITEBACK_KEY_VAULT_URI is not set.");
 
+var confirmationSigningKey = Environment.GetEnvironmentVariable("OUTLOOK_WRITEBACK_CONFIRMATION_SIGNING_KEY")
+    ?? throw new InvalidOperationException("OUTLOOK_WRITEBACK_CONFIRMATION_SIGNING_KEY is not set.");
+
 builder.Services.AddSingleton<IRefreshTokenStore>(_ =>
     new KeyVaultRefreshTokenStore(new SecretClient(new Uri(keyVaultUri), new DefaultAzureCredential())));
 
@@ -33,5 +37,11 @@ builder.Services.AddSingleton(sp => OutlookGraphClient.CreateWithSilentRefreshAu
     clientId,
     ["Mail.ReadWrite", "Calendars.ReadWrite"],
     sp.GetRequiredService<IRefreshTokenStore>()));
+
+builder.Services.AddSingleton(new DeleteConfirmationTokenService(Convert.FromBase64String(confirmationSigningKey)));
+
+builder.Services.AddSingleton(sp => new EventDeletionService(
+    sp.GetRequiredService<OutlookGraphClient>(),
+    sp.GetRequiredService<DeleteConfirmationTokenService>()));
 
 builder.Build().Run();

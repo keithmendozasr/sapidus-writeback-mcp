@@ -85,4 +85,41 @@ public class GraphTokenEndpointClientTests
             () => CreateClient(handler).RedeemRefreshTokenAsync("expired-refresh-token", ["Mail.ReadWrite"]),
             Throws.InstanceOf<HttpRequestException>());
     }
+
+    [Test]
+    public async Task ExchangeAuthorizationCodeAsync_posts_grant_type_authorization_code_with_the_code_verifier()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var form = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(form, Does.Contain("grant_type=authorization_code"));
+                Assert.That(form, Does.Contain("code=auth-code"));
+                Assert.That(form, Does.Contain("code_verifier=verifier-value"));
+                Assert.That(form, Does.Contain("redirect_uri=http"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"access_token":"first-access-token","refresh_token":"first-refresh-token","expires_in":3600}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        });
+
+        var response = await CreateClient(handler).ExchangeAuthorizationCodeAsync(
+            "auth-code",
+            "verifier-value",
+            "http://localhost",
+            ["Mail.ReadWrite", "Calendars.ReadWrite"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.AccessToken, Is.EqualTo("first-access-token"));
+            Assert.That(response.RefreshToken, Is.EqualTo("first-refresh-token"));
+        });
+    }
 }

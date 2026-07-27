@@ -1,6 +1,7 @@
 using Azure.Identity;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using OutlookWriteback.Graph.Auth;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("OutlookWriteback.Graph.Tests")]
 
@@ -40,6 +41,26 @@ public sealed class OutlookGraphClient
             });
 
         var client = new GraphServiceClient(credential, scopes);
+
+        return new OutlookGraphClient(client);
+    }
+
+    /// <summary>
+    /// Non-interactive counterpart to CreateWithInteractiveBrowserAuth, for a deployed service
+    /// that can't pop a browser - silently redeems a refresh token cached in refreshTokenStore
+    /// instead. The refresh token itself must be seeded once via a separate interactive
+    /// bootstrap step (see OutlookWriteback.Bootstrap).
+    /// </summary>
+    public static OutlookGraphClient CreateWithSilentRefreshAuth(
+        string tenantId,
+        string clientId,
+        IEnumerable<string> scopes,
+        IRefreshTokenStore refreshTokenStore)
+    {
+        var scopeArray = scopes as string[] ?? [.. scopes];
+        var tokenEndpointClient = new GraphTokenEndpointClient(tenantId, clientId);
+        var credential = new SilentGraphCredential(tokenEndpointClient, refreshTokenStore, scopeArray);
+        var client = new GraphServiceClient(credential, scopeArray);
 
         return new OutlookGraphClient(client);
     }

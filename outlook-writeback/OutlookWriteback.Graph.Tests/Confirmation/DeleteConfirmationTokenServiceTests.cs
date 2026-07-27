@@ -20,4 +20,14 @@ public class DeleteConfirmationTokenServiceTests
 
         Assert.That(service.Validate("AAkA-fake-event-id", token), Is.True);
     }
+
+    [Test]
+    public void Validate_rejects_a_token_issued_for_a_different_event_id()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        var token = service.Issue("AAkA-fake-event-id");
+
+        Assert.That(service.Validate("AAkA-a-different-event-id", token), Is.False);
+    }
 }

@@ -67,4 +67,54 @@ public class SilentGraphCredentialTests
             Assert.That(store.SaveCallCount, Is.EqualTo(0));
         });
     }
+
+    [Test]
+    public async Task GetTokenAsync_reuses_the_cached_access_token_without_redeeming_again_before_expiry()
+    {
+        var store = new FakeRefreshTokenStore("initial-refresh-token");
+        var requestCount = 0;
+        var handler = new StubHttpMessageHandler(_ =>
+        {
+            requestCount++;
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"access_token":"new-access-token","refresh_token":"rotated-refresh-token","expires_in":3600}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        });
+        var credential = CreateCredential(handler, store);
+
+        await credential.GetTokenAsync(new TokenRequestContext(["Mail.ReadWrite"]), CancellationToken.None);
+        await credential.GetTokenAsync(new TokenRequestContext(["Mail.ReadWrite"]), CancellationToken.None);
+
+        Assert.That(requestCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetTokenAsync_redeems_again_once_the_cached_access_token_is_near_expiry()
+    {
+        var store = new FakeRefreshTokenStore("initial-refresh-token");
+        var requestCount = 0;
+        var handler = new StubHttpMessageHandler(_ =>
+        {
+            requestCount++;
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"access_token":"new-access-token","refresh_token":"rotated-refresh-token","expires_in":0}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        });
+        var credential = CreateCredential(handler, store);
+
+        await credential.GetTokenAsync(new TokenRequestContext(["Mail.ReadWrite"]), CancellationToken.None);
+        await credential.GetTokenAsync(new TokenRequestContext(["Mail.ReadWrite"]), CancellationToken.None);
+
+        Assert.That(requestCount, Is.EqualTo(2));
+    }
 }

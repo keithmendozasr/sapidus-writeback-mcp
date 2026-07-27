@@ -68,4 +68,34 @@ public class OutlookGraphClientPayloadTests
             Assert.That(message.ToRecipients, Is.Null);
         });
     }
+
+    [Test]
+    public void BuildUpdateDraftMessage_sets_only_the_recipient_when_only_recipient_changes()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: "owner@example.com", subject: null, bodyText: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Subject, Is.Null);
+            Assert.That(message.Body, Is.Null);
+            Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
+        });
+    }
+
+    [Test]
+    public void BuildUpdateDraftMessage_sets_all_fields_when_all_are_provided()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(
+            toAddress: "owner@example.com",
+            subject: "New subject",
+            bodyText: "New body text.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Subject, Is.EqualTo("New subject"));
+            Assert.That(message.Body?.ContentType, Is.EqualTo(BodyType.Text));
+            Assert.That(message.Body?.Content, Is.EqualTo("New body text."));
+            Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
+        });
+    }
 }

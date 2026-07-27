@@ -77,4 +77,16 @@ public class EventDeletionServiceTests
 
         Assert.That(confirmed, Is.True);
     }
+
+    [Test]
+    public async Task ConfirmDeletionAsync_does_not_call_Graph_when_the_token_is_invalid()
+    {
+        var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException(
+            "Graph must not be called when the confirmation token fails validation."));
+
+        var confirmed = await CreateService(handler, DateTimeOffset.UtcNow)
+            .ConfirmDeletionAsync("AAkA-fake-event-id", "not-a-valid-token");
+
+        Assert.That(confirmed, Is.False);
+    }
 }

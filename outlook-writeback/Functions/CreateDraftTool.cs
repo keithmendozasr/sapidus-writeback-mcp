@@ -8,13 +8,15 @@ public sealed class CreateDraftTool(OutlookGraphClient client)
 {
     [Function(nameof(CreateDraftTool))]
     public async Task<string> RunAsync(
-        [McpToolTrigger("create_draft", "Create a plain-text Outlook draft in the user's mailbox. Does not send it.")]
+        [McpToolTrigger("create_draft", "Create an Outlook draft in the user's mailbox. Does not send it.")]
             ToolInvocationContext context,
         [McpToolProperty("toAddress", "Recipient email address.", isRequired: true)] string toAddress,
         [McpToolProperty("subject", "Email subject.", isRequired: true)] string subject,
-        [McpToolProperty("body", "Plain-text email body.", isRequired: true)] string body)
+        [McpToolProperty("body", "Email body. Plain text unless isHtml is true.", isRequired: true)] string body,
+        [McpToolProperty("isHtml", "Set true if body is HTML markup instead of plain text (e.g. to include a table). Defaults to false.")]
+            bool? isHtml)
     {
-        var draftId = await client.CreateDraftAsync(toAddress, subject, body);
+        var draftId = await client.CreateDraftAsync(toAddress, subject, body, isHtml ?? false);
 
         return $"Draft created. ID: {draftId}. Open it in Outlook to review and send.";
     }

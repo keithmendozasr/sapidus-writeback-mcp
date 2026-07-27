@@ -13,9 +13,11 @@ public sealed class UpdateDraftTool(OutlookGraphClient client)
         [McpToolProperty("draftId", "The Outlook draft's message ID.", isRequired: true)] string draftId,
         [McpToolProperty("toAddress", "New recipient email address, if changing it.")] string? toAddress,
         [McpToolProperty("subject", "New subject, if changing it.")] string? subject,
-        [McpToolProperty("body", "New plain-text body, if changing it.")] string? body)
+        [McpToolProperty("body", "New body, if changing it. Plain text unless isHtml is true.")] string? body,
+        [McpToolProperty("isHtml", "Set true if body is HTML markup instead of plain text (e.g. to include a table). Only applies when body is also provided. Defaults to false.")]
+            bool? isHtml)
     {
-        var updatedId = await client.UpdateDraftAsync(draftId, toAddress, subject, body);
+        var updatedId = await client.UpdateDraftAsync(draftId, toAddress, subject, body, isHtml ?? false);
 
         return $"Draft updated. ID: {updatedId}.";
     }

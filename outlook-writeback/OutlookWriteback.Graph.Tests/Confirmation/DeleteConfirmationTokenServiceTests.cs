@@ -30,4 +30,32 @@ public class DeleteConfirmationTokenServiceTests
 
         Assert.That(service.Validate("AAkA-a-different-event-id", token), Is.False);
     }
+
+    [Test]
+    public void Validate_rejects_a_token_signed_with_a_different_key()
+    {
+        var issuingService = new DeleteConfirmationTokenService(
+            Encoding.UTF8.GetBytes("key-one"),
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var validatingService = new DeleteConfirmationTokenService(
+            Encoding.UTF8.GetBytes("key-two"),
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var token = issuingService.Issue("AAkA-fake-event-id");
+
+        Assert.That(validatingService.Validate("AAkA-fake-event-id", token), Is.False);
+    }
+
+    [Test]
+    public void Validate_rejects_a_token_whose_payload_has_been_tampered_with()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        var token = service.Issue("AAkA-fake-event-id");
+        var payload = token.Split('.')[0];
+        var tampered = token.Replace(payload, payload + "x");
+
+        Assert.That(service.Validate("AAkA-fake-event-id", tampered), Is.False);
+    }
 }

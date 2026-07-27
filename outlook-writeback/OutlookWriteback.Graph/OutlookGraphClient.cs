@@ -21,6 +21,11 @@ public sealed class OutlookGraphClient
         _client = client;
     }
 
+    /// <summary>
+    /// Requires the Entra app to be registered as a public client with
+    /// "http://localhost" listed under Mobile and desktop redirect URIs - a
+    /// confidential/web registration will fail the redirect-URI check at sign-in.
+    /// </summary>
     public static OutlookGraphClient CreateWithInteractiveBrowserAuth(
         string tenantId,
         string clientId,

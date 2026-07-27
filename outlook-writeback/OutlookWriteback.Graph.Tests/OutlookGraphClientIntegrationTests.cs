@@ -44,4 +44,36 @@ public class OutlookGraphClientIntegrationTests
 
         Assert.That(draftId, Is.Not.Null.And.Not.Empty);
     }
+
+    [Test]
+    public async Task CreateEventAsync_creates_an_event_and_returns_its_id()
+    {
+        var start = DateTimeOffset.UtcNow.AddDays(30);
+        var end = start.AddHours(1);
+
+        var eventId = await _client!.CreateEventAsync(
+            "Phase 0 spike - outlook-writeback",
+            start,
+            end,
+            bodyText: "Created by the Phase 0 spike integration test. Safe to delete.");
+
+        Assert.That(eventId, Is.Not.Null.And.Not.Empty);
+    }
+
+    /// <summary>
+    /// PRD open question #2: an event ID found by the M365 connector's calendar search must
+    /// resolve through this app's own Graph credentials against the same /me/events ID space.
+    /// </summary>
+    [Test]
+    public async Task GetEventByIdAsync_resolves_an_event_id_returned_by_the_M365_connector()
+    {
+        var connectorEventId = Environment.GetEnvironmentVariable("OUTLOOK_WRITEBACK_CONNECTOR_EVENT_ID");
+
+        if (string.IsNullOrEmpty(connectorEventId))
+            Assert.Ignore("Set OUTLOOK_WRITEBACK_CONNECTOR_EVENT_ID to a real event ID from the M365 connector's calendar search.");
+
+        var resolved = await _client!.GetEventByIdAsync(connectorEventId!);
+
+        Assert.That(resolved?.Id, Is.EqualTo(connectorEventId));
+    }
 }

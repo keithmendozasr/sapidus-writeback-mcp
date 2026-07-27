@@ -56,6 +56,22 @@ public sealed class OutlookGraphClient
         return created?.Id;
     }
 
+    public async Task<string?> UpdateDraftAsync(
+        string draftId,
+        string? toAddress = null,
+        string? subject = null,
+        string? bodyText = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (toAddress is null && subject is null && bodyText is null)
+            throw new ArgumentException("At least one of toAddress, subject, or bodyText must be provided.");
+
+        var message = BuildUpdateDraftMessage(toAddress, subject, bodyText);
+        var updated = await _client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
+
+        return updated?.Id ?? draftId;
+    }
+
     public async Task<string?> CreateEventAsync(
         string subject,
         DateTimeOffset start,

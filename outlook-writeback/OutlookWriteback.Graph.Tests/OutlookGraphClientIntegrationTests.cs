@@ -47,6 +47,31 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task UpdateDraftAsync_sends_a_PATCH_to_me_messages_id_and_returns_the_updated_id()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/messages/AAMk-fake-draft-id"));
+                Assert.That(body, Does.Not.Contain("attachments"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var updatedId = await CreateClient(handler).UpdateDraftAsync("AAMk-fake-draft-id", subject: "New subject");
+
+        Assert.That(updatedId, Is.EqualTo("AAMk-fake-draft-id"));
+    }
+
+    [Test]
     public async Task CreateEventAsync_sends_a_POST_to_me_events_and_returns_the_created_id()
     {
         var handler = new StubHttpMessageHandler(request =>

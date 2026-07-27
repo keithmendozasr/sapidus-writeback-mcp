@@ -141,6 +141,31 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task UpdateEventAsync_sends_a_PATCH_to_me_events_id_and_returns_the_updated_id()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events/AAkA-fake-event-id"));
+                Assert.That(body, Does.Contain("New subject"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var updatedId = await CreateClient(handler).UpdateEventAsync("AAkA-fake-event-id", subject: "New subject");
+
+        Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    [Test]
     public async Task GetEventByIdAsync_sends_a_GET_to_me_events_id_and_returns_the_resolved_event()
     {
         var handler = new StubHttpMessageHandler(request =>

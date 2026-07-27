@@ -106,6 +106,25 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
     public Task<Event?> GetEventByIdAsync(string eventId, CancellationToken cancellationToken = default) =>
         client.Me.Events[eventId].GetAsync(cancellationToken: cancellationToken);
 
+    public async Task<string?> UpdateEventAsync(
+        string eventId,
+        string? subject = null,
+        DateTimeOffset? start = null,
+        DateTimeOffset? end = null,
+        string? location = null,
+        string? bodyText = null,
+        IEnumerable<string>? attendeeAddresses = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (subject is null && start is null && end is null && location is null && bodyText is null && attendeeAddresses is null)
+            throw new ArgumentException("At least one of subject, start, end, location, bodyText, or attendeeAddresses must be provided.");
+
+        var calendarEvent = BuildUpdateEvent(subject, start, end, location, bodyText, attendeeAddresses);
+        var updated = await client.Me.Events[eventId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
+
+        return updated?.Id ?? eventId;
+    }
+
     internal static Message BuildDraftMessage(string toAddress, string subject, string bodyText, bool isHtml = false) => new()
     {
         Subject = subject,

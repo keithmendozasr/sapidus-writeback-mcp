@@ -45,4 +45,52 @@ public class OutlookGraphClientIntegrationTests
 
         Assert.That(draftId, Is.EqualTo("AAMk-fake-draft-id"));
     }
+
+    [Test]
+    public async Task CreateEventAsync_sends_a_POST_to_me_events_and_returns_the_created_id()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Post));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+        var eventId = await CreateClient(handler).CreateEventAsync("Standup", start, start.AddHours(1));
+
+        Assert.That(eventId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    [Test]
+    public async Task GetEventByIdAsync_sends_a_GET_to_me_events_id_and_returns_the_resolved_event()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Get));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events/AAkA-connector-event-id"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"id":"AAkA-connector-event-id","subject":"Standup"}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        });
+
+        var resolved = await CreateClient(handler).GetEventByIdAsync("AAkA-connector-event-id");
+
+        Assert.That(resolved?.Id, Is.EqualTo("AAkA-connector-event-id"));
+    }
 }

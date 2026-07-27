@@ -49,4 +49,22 @@ public class SilentGraphCredentialTests
 
         Assert.That(await store.GetRefreshTokenAsync(), Is.EqualTo("rotated-refresh-token"));
     }
+
+    [Test]
+    public async Task GetTokenAsync_reuses_the_existing_refresh_token_when_the_response_omits_one()
+    {
+        var store = new FakeRefreshTokenStore("initial-refresh-token");
+        var handler = CreateHandler("new-access-token", refreshToken: null);
+        var credential = CreateCredential(handler, store);
+
+        await credential.GetTokenAsync(new TokenRequestContext(["Mail.ReadWrite"]), CancellationToken.None);
+
+        var storedRefreshToken = await store.GetRefreshTokenAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(storedRefreshToken, Is.EqualTo("initial-refresh-token"));
+            Assert.That(store.SaveCallCount, Is.EqualTo(0));
+        });
+    }
 }

@@ -166,6 +166,25 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildUpdateEvent_sets_only_the_body_when_only_body_changes()
+    {
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: null,
+            end: null,
+            location: null,
+            bodyText: "New notes.",
+            attendeeAddresses: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Subject, Is.Null);
+            Assert.That(calendarEvent.Body?.ContentType, Is.EqualTo(BodyType.Text));
+            Assert.That(calendarEvent.Body?.Content, Is.EqualTo("New notes."));
+        });
+    }
+
+    [Test]
     public void UpdateDraftAsync_throws_when_no_fields_are_provided()
     {
         var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };

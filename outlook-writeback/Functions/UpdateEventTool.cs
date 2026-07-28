@@ -28,7 +28,13 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
         [McpToolProperty("location", "New location, if changing it.")] string? location,
         [McpToolProperty("body", "New notes/description, if changing it.")] string? body,
         [McpToolProperty("attendees", "New comma-separated attendee email addresses, if changing it. Replaces the existing attendee list entirely.")]
-            string? attendees)
+            string? attendees,
+        [McpToolProperty(
+            "reminderMinutes",
+            "Minutes before the event start to show a reminder, if setting/changing one (e.g. 15; 0 means at start " +
+                "time). Omit to leave the event's existing reminder state unchanged. There is currently no way to " +
+                "explicitly turn off an existing reminder through this tool.")]
+            int? reminderMinutes)
     {
         var attendeeAddresses = string.IsNullOrWhiteSpace(attendees)
             ? null
@@ -42,7 +48,8 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
             timeZone,
             location,
             body,
-            attendeeAddresses);
+            attendeeAddresses,
+            reminderMinutes);
 
         return $"Event updated. ID: {updatedId}.";
     }

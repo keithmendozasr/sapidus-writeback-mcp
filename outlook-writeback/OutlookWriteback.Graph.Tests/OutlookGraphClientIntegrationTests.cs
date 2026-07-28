@@ -142,7 +142,7 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
-    public async Task CreateEventAsync_serializes_a_non_utc_timeZone_with_no_offset_suffix()
+    public async Task CreateEventAsync_serializes_a_non_utc_timeZone_with_no_offset_suffix_and_reminder_fields()
     {
         var handler = new StubHttpMessageHandler(async request =>
         {
@@ -152,6 +152,8 @@ public class OutlookGraphClientIntegrationTests
             {
                 Assert.That(body, Does.Contain("\"timeZone\":\"America/New_York\""));
                 Assert.That(body, Does.Not.Match("\"dateTime\":\"[^\"]*Z\""));
+                Assert.That(body, Does.Contain("\"isReminderOn\":true"));
+                Assert.That(body, Does.Contain("\"reminderMinutesBeforeStart\":15"));
             });
 
             return new HttpResponseMessage(HttpStatusCode.Created)
@@ -166,7 +168,8 @@ public class OutlookGraphClientIntegrationTests
             "Standup",
             start,
             start.AddHours(1),
-            "America/New_York");
+            "America/New_York",
+            reminderMinutesBeforeStart: 15);
     }
 
     [Test]

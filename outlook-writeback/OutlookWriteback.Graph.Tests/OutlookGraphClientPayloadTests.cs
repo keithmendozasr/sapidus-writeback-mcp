@@ -129,6 +129,51 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildEvent_sets_reminder_fields_when_reminderMinutesBeforeStart_is_provided()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup", start, start.AddHours(1), timeZone: "UTC", location: null, bodyText: null, reminderMinutesBeforeStart: 15);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.IsReminderOn, Is.True);
+            Assert.That(calendarEvent.ReminderMinutesBeforeStart, Is.EqualTo(15));
+        });
+    }
+
+    [Test]
+    public void BuildEvent_leaves_reminder_fields_null_when_reminderMinutesBeforeStart_is_omitted()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup", start, start.AddHours(1), timeZone: "UTC", location: null, bodyText: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.IsReminderOn, Is.Null);
+            Assert.That(calendarEvent.ReminderMinutesBeforeStart, Is.Null);
+        });
+    }
+
+    [Test]
+    public void BuildEvent_accepts_a_zero_minute_reminder()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup", start, start.AddHours(1), timeZone: "UTC", location: null, bodyText: null, reminderMinutesBeforeStart: 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.IsReminderOn, Is.True);
+            Assert.That(calendarEvent.ReminderMinutesBeforeStart, Is.EqualTo(0));
+        });
+    }
+
+    [Test]
     public void BuildUpdateDraftMessage_sets_only_the_subject_when_only_subject_changes()
     {
         var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: null, subject: "New subject", bodyText: null);
@@ -207,7 +252,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: null,
             location: null,
             bodyText: null,
-            attendeeAddresses: null);
+            attendeeAddresses: null,
+            reminderMinutesBeforeStart: null);
 
         Assert.Multiple(() =>
         {
@@ -230,7 +276,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: null,
             location: null,
             bodyText: "New notes.",
-            attendeeAddresses: null);
+            attendeeAddresses: null,
+            reminderMinutesBeforeStart: null);
 
         Assert.Multiple(() =>
         {
@@ -253,7 +300,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: null,
             location: null,
             bodyText: null,
-            attendeeAddresses: null);
+            attendeeAddresses: null,
+            reminderMinutesBeforeStart: null);
 
         Assert.Multiple(() =>
         {
@@ -278,7 +326,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: "America/New_York",
             location: null,
             bodyText: null,
-            attendeeAddresses: null);
+            attendeeAddresses: null,
+            reminderMinutesBeforeStart: null);
 
         var expectedLocal = TimeZoneInfo.ConvertTime(start, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
 
@@ -300,7 +349,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: null,
             location: "Conference Room B",
             bodyText: null,
-            attendeeAddresses: null);
+            attendeeAddresses: null,
+            reminderMinutesBeforeStart: null);
 
         Assert.Multiple(() =>
         {
@@ -320,7 +370,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: null,
             location: null,
             bodyText: null,
-            attendeeAddresses: ["alice@example.com"]);
+            attendeeAddresses: ["alice@example.com"],
+            reminderMinutesBeforeStart: null);
 
         Assert.Multiple(() =>
         {
@@ -328,6 +379,28 @@ public class OutlookGraphClientPayloadTests
             Assert.That(
                 calendarEvent.Attendees?.Select(attendee => attendee.EmailAddress?.Address),
                 Is.EqualTo(new[] { "alice@example.com" }));
+        });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_sets_only_reminder_fields_when_only_reminder_changes()
+    {
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: null,
+            end: null,
+            timeZone: null,
+            location: null,
+            bodyText: null,
+            attendeeAddresses: null,
+            reminderMinutesBeforeStart: 30);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Subject, Is.Null);
+            Assert.That(calendarEvent.Start, Is.Null);
+            Assert.That(calendarEvent.IsReminderOn, Is.True);
+            Assert.That(calendarEvent.ReminderMinutesBeforeStart, Is.EqualTo(30));
         });
     }
 
@@ -344,7 +417,8 @@ public class OutlookGraphClientPayloadTests
             timeZone: "America/New_York",
             location: "Conference Room B",
             bodyText: "New notes.",
-            attendeeAddresses: ["alice@example.com"]);
+            attendeeAddresses: ["alice@example.com"],
+            reminderMinutesBeforeStart: 15);
 
         var expectedLocal = TimeZoneInfo.ConvertTime(start, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
 
@@ -359,6 +433,8 @@ public class OutlookGraphClientPayloadTests
             Assert.That(
                 calendarEvent.Attendees?.Select(attendee => attendee.EmailAddress?.Address),
                 Is.EqualTo(new[] { "alice@example.com" }));
+            Assert.That(calendarEvent.IsReminderOn, Is.True);
+            Assert.That(calendarEvent.ReminderMinutesBeforeStart, Is.EqualTo(15));
         });
     }
 
@@ -392,6 +468,29 @@ public class OutlookGraphClientPayloadTests
 
         Assert.That(
             () => client.UpdateEventAsync("AAkA-fake-event-id", timeZone: "America/New_York"),
+            Throws.ArgumentException);
+    }
+
+    [Test]
+    public void UpdateEventAsync_throws_when_reminderMinutesBeforeStart_is_negative()
+    {
+        var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
+        var client = new OutlookGraphClient(new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider()));
+
+        Assert.That(
+            () => client.UpdateEventAsync("AAkA-fake-event-id", reminderMinutesBeforeStart: -5),
+            Throws.ArgumentException);
+    }
+
+    [Test]
+    public void CreateEventAsync_throws_when_reminderMinutesBeforeStart_is_negative()
+    {
+        var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
+        var client = new OutlookGraphClient(new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider()));
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        Assert.That(
+            () => client.CreateEventAsync("Standup", start, start.AddHours(1), "UTC", reminderMinutesBeforeStart: -5),
             Throws.ArgumentException);
     }
 }

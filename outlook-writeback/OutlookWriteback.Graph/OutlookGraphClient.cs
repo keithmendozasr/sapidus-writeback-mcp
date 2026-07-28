@@ -96,9 +96,13 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? location = null,
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
+        int? reminderMinutesBeforeStart = null,
         CancellationToken cancellationToken = default)
     {
-        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses);
+        if (reminderMinutesBeforeStart is < 0)
+            throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
+
+        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart);
         var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -116,15 +120,23 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? location = null,
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
+        int? reminderMinutesBeforeStart = null,
         CancellationToken cancellationToken = default)
     {
+        if (reminderMinutesBeforeStart is < 0)
+            throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
+
         if (timeZone is not null && start is null && end is null)
             throw new ArgumentException("timeZone can only be provided together with start and/or end.");
 
-        if (subject is null && start is null && end is null && location is null && bodyText is null && attendeeAddresses is null)
-            throw new ArgumentException("At least one of subject, start, end, location, bodyText, or attendeeAddresses must be provided.");
+        if (subject is null && start is null && end is null && location is null && bodyText is null
+            && attendeeAddresses is null && reminderMinutesBeforeStart is null)
+        {
+            throw new ArgumentException(
+                "At least one of subject, start, end, location, bodyText, attendeeAddresses, or reminderMinutesBeforeStart must be provided.");
+        }
 
-        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses);
+        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart);
         var updated = await client.Me.Events[eventId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return updated?.Id ?? eventId;
@@ -163,7 +175,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string timeZone,
         string? location,
         string? bodyText,
-        IEnumerable<string>? attendeeAddresses = null)
+        IEnumerable<string>? attendeeAddresses = null,
+        int? reminderMinutesBeforeStart = null)
     {
         var calendarEvent = new Event
         {
@@ -180,6 +193,12 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
 
         if (attendeeAddresses is not null)
             calendarEvent.Attendees = BuildAttendees(attendeeAddresses);
+
+        if (reminderMinutesBeforeStart is not null)
+        {
+            calendarEvent.IsReminderOn = true;
+            calendarEvent.ReminderMinutesBeforeStart = reminderMinutesBeforeStart;
+        }
 
         return calendarEvent;
     }
@@ -198,7 +217,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? timeZone,
         string? location,
         string? bodyText,
-        IEnumerable<string>? attendeeAddresses)
+        IEnumerable<string>? attendeeAddresses,
+        int? reminderMinutesBeforeStart)
     {
         var calendarEvent = new Event();
 
@@ -219,6 +239,12 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
 
         if (attendeeAddresses is not null)
             calendarEvent.Attendees = BuildAttendees(attendeeAddresses);
+
+        if (reminderMinutesBeforeStart is not null)
+        {
+            calendarEvent.IsReminderOn = true;
+            calendarEvent.ReminderMinutesBeforeStart = reminderMinutesBeforeStart;
+        }
 
         return calendarEvent;
     }

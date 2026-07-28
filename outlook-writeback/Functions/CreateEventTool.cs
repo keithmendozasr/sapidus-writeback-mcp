@@ -27,7 +27,12 @@ public sealed class CreateEventTool(OutlookGraphClient client)
             string timeZone,
         [McpToolProperty("location", "Event location, if any.")] string? location,
         [McpToolProperty("body", "Event notes/description, if any.")] string? body,
-        [McpToolProperty("attendees", "Comma-separated attendee email addresses, if any.")] string? attendees)
+        [McpToolProperty("attendees", "Comma-separated attendee email addresses, if any.")] string? attendees,
+        [McpToolProperty(
+            "reminderMinutes",
+            "Minutes before the event start to show a reminder, if setting one (e.g. 15; 0 means at start time). " +
+                "Omit to leave reminders at the mailbox/Graph default.")]
+            int? reminderMinutes)
     {
         var attendeeAddresses = string.IsNullOrWhiteSpace(attendees)
             ? null
@@ -40,7 +45,8 @@ public sealed class CreateEventTool(OutlookGraphClient client)
             timeZone,
             location,
             body,
-            attendeeAddresses);
+            attendeeAddresses,
+            reminderMinutes);
 
         return $"Event created. ID: {eventId}.";
     }

@@ -31,9 +31,11 @@ public class CreateEventToolTests
                 "Standup",
                 "2026-08-01T09:00:00-05:00",
                 "2026-08-01T09:30:00-05:00",
+                "UTC",
                 null,
                 null,
-                ["alice@example.com", "   "]),
+                ["alice@example.com", "   "],
+                null),
             Throws.ArgumentException);
     }
 
@@ -58,9 +60,11 @@ public class CreateEventToolTests
             "Standup",
             "2026-08-01T09:00:00-05:00",
             "2026-08-01T09:30:00-05:00",
+            "UTC",
             null,
             null,
-            ["  alice@example.com  "]);
+            ["  alice@example.com  "],
+            null);
     }
 
     [Test]
@@ -77,6 +81,8 @@ public class CreateEventToolTests
             "Standup",
             "2026-08-01T09:00:00-05:00",
             "2026-08-01T09:30:00-05:00",
+            "UTC",
+            null,
             null,
             null,
             null);

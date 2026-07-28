@@ -26,7 +26,7 @@ public class UpdateEventToolTests
         var tool = new UpdateEventTool(CreateClient(handler));
 
         Assert.That(
-            () => tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, ["alice@example.com", "   "]),
+            () => tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, null, ["alice@example.com", "   "], null),
             Throws.ArgumentException);
     }
 
@@ -46,6 +46,6 @@ public class UpdateEventToolTests
         });
         var tool = new UpdateEventTool(CreateClient(handler));
 
-        await tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, []);
+        await tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, null, [], null);
     }
 }

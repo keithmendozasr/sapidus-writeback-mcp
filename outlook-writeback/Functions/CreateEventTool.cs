@@ -19,6 +19,12 @@ public sealed class CreateEventTool(OutlookGraphClient client)
         [McpToolProperty("start", "Event start time, ISO 8601 with a timezone offset (e.g. 2026-08-01T09:00:00-05:00).", isRequired: true)]
             string start,
         [McpToolProperty("end", "Event end time, ISO 8601 with a timezone offset.", isRequired: true)] string end,
+        [McpToolProperty(
+            "timeZone",
+            "IANA time zone identifier for start/end (e.g. \"America/New_York\"). Windows time zone names are also " +
+                "accepted. Controls how the event's time is displayed on the calendar.",
+            isRequired: true)]
+            string timeZone,
         [McpToolProperty("location", "Event location, if any.")] string? location,
         [McpToolProperty("body", "Event notes/description, if any.")] string? body,
         [McpToolProperty("attendees", "Comma-separated attendee email addresses, if any.")] string? attendees)
@@ -31,6 +37,7 @@ public sealed class CreateEventTool(OutlookGraphClient client)
             subject,
             DateTimeOffset.Parse(start),
             DateTimeOffset.Parse(end),
+            timeZone,
             location,
             body,
             attendeeAddresses);

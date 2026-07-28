@@ -39,21 +39,74 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
-    public void BuildEvent_maps_times_to_utc_and_omits_optional_fields_when_absent()
+    public void BuildEvent_converts_to_the_provided_timeZones_local_wall_clock_and_omits_optional_fields_when_absent()
     {
         var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
         var end = start.AddHours(1);
 
-        var calendarEvent = OutlookGraphClient.BuildEvent("Standup", start, end, location: null, bodyText: null);
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup", start, end, timeZone: "America/New_York", location: null, bodyText: null);
+
+        var expectedLocal = TimeZoneInfo.ConvertTime(start, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
 
         Assert.Multiple(() =>
         {
             Assert.That(calendarEvent.Subject, Is.EqualTo("Standup"));
-            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo("UTC"));
-            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(start.UtcDateTime.ToString("o")));
+            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo("America/New_York"));
+            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(expectedLocal.DateTime.ToString("o")));
+            Assert.That(calendarEvent.Start?.DateTime, Does.Not.EndWith("Z"));
             Assert.That(calendarEvent.Location, Is.Null);
             Assert.That(calendarEvent.Body, Is.Null);
         });
+    }
+
+    [Test]
+    public void BuildEvent_converts_local_wall_clock_correctly_across_a_DST_boundary()
+    {
+        var summerStart = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-4)); // EDT
+        var winterStart = new DateTimeOffset(2026, 1, 15, 9, 0, 0, TimeSpan.FromHours(-5)); // EST
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
+
+        var summerEvent = OutlookGraphClient.BuildEvent(
+            "Summer", summerStart, summerStart.AddHours(1), timeZone: "America/New_York", location: null, bodyText: null);
+        var winterEvent = OutlookGraphClient.BuildEvent(
+            "Winter", winterStart, winterStart.AddHours(1), timeZone: "America/New_York", location: null, bodyText: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                summerEvent.Start?.DateTime,
+                Is.EqualTo(TimeZoneInfo.ConvertTime(summerStart, timeZone).DateTime.ToString("o")));
+            Assert.That(
+                winterEvent.Start?.DateTime,
+                Is.EqualTo(TimeZoneInfo.ConvertTime(winterStart, timeZone).DateTime.ToString("o")));
+        });
+    }
+
+    [Test]
+    public void BuildEvent_uses_no_offset_suffix_even_when_timeZone_is_explicitly_UTC()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup", start, start.AddHours(1), timeZone: "UTC", location: null, bodyText: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo("UTC"));
+            Assert.That(calendarEvent.Start?.DateTime, Does.Not.EndWith("Z"));
+            Assert.That(calendarEvent.Start?.DateTime, Is.Not.EqualTo(start.UtcDateTime.ToString("o")));
+        });
+    }
+
+    [Test]
+    public void BuildEvent_throws_when_timeZone_is_invalid()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        Assert.That(
+            () => OutlookGraphClient.BuildEvent("Standup", start, start.AddHours(1), timeZone: "Not/AZone", location: null, bodyText: null),
+            Throws.TypeOf<TimeZoneNotFoundException>());
     }
 
     [Test]
@@ -65,6 +118,7 @@ public class OutlookGraphClientPayloadTests
             "Standup",
             start,
             start.AddHours(1),
+            timeZone: "UTC",
             location: null,
             bodyText: null,
             attendeeAddresses: ["alice@example.com", "bob@example.com"]);
@@ -150,6 +204,7 @@ public class OutlookGraphClientPayloadTests
             subject: "New subject",
             start: null,
             end: null,
+            timeZone: null,
             location: null,
             bodyText: null,
             attendeeAddresses: null);
@@ -172,6 +227,7 @@ public class OutlookGraphClientPayloadTests
             subject: null,
             start: null,
             end: null,
+            timeZone: null,
             location: null,
             bodyText: "New notes.",
             attendeeAddresses: null);
@@ -185,7 +241,7 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
-    public void BuildUpdateEvent_sets_only_start_and_end_when_only_the_time_changes()
+    public void BuildUpdateEvent_sets_only_start_and_end_when_only_the_time_changes_and_preserves_legacy_utc_with_Z_when_timeZone_is_not_provided()
     {
         var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
         var end = start.AddHours(1);
@@ -194,6 +250,7 @@ public class OutlookGraphClientPayloadTests
             subject: null,
             start: start,
             end: end,
+            timeZone: null,
             location: null,
             bodyText: null,
             attendeeAddresses: null);
@@ -201,9 +258,35 @@ public class OutlookGraphClientPayloadTests
         Assert.Multiple(() =>
         {
             Assert.That(calendarEvent.Subject, Is.Null);
+            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo("UTC"));
             Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(start.UtcDateTime.ToString("o")));
             Assert.That(calendarEvent.End?.DateTime, Is.EqualTo(end.UtcDateTime.ToString("o")));
             Assert.That(calendarEvent.Location, Is.Null);
+        });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_converts_local_wall_clock_when_timeZone_is_provided_with_start_and_end()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+        var end = start.AddHours(1);
+
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: start,
+            end: end,
+            timeZone: "America/New_York",
+            location: null,
+            bodyText: null,
+            attendeeAddresses: null);
+
+        var expectedLocal = TimeZoneInfo.ConvertTime(start, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo("America/New_York"));
+            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(expectedLocal.DateTime.ToString("o")));
+            Assert.That(calendarEvent.Start?.DateTime, Does.Not.EndWith("Z"));
         });
     }
 
@@ -214,6 +297,7 @@ public class OutlookGraphClientPayloadTests
             subject: null,
             start: null,
             end: null,
+            timeZone: null,
             location: "Conference Room B",
             bodyText: null,
             attendeeAddresses: null);
@@ -233,6 +317,7 @@ public class OutlookGraphClientPayloadTests
             subject: null,
             start: null,
             end: null,
+            timeZone: null,
             location: null,
             bodyText: null,
             attendeeAddresses: ["alice@example.com"]);
@@ -256,15 +341,19 @@ public class OutlookGraphClientPayloadTests
             subject: "New subject",
             start: start,
             end: end,
+            timeZone: "America/New_York",
             location: "Conference Room B",
             bodyText: "New notes.",
             attendeeAddresses: ["alice@example.com"]);
 
+        var expectedLocal = TimeZoneInfo.ConvertTime(start, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
+
         Assert.Multiple(() =>
         {
             Assert.That(calendarEvent.Subject, Is.EqualTo("New subject"));
-            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(start.UtcDateTime.ToString("o")));
-            Assert.That(calendarEvent.End?.DateTime, Is.EqualTo(end.UtcDateTime.ToString("o")));
+            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo("America/New_York"));
+            Assert.That(calendarEvent.Start?.DateTime, Is.EqualTo(expectedLocal.DateTime.ToString("o")));
+            Assert.That(calendarEvent.Start?.DateTime, Does.Not.EndWith("Z"));
             Assert.That(calendarEvent.Location?.DisplayName, Is.EqualTo("Conference Room B"));
             Assert.That(calendarEvent.Body?.Content, Is.EqualTo("New notes."));
             Assert.That(
@@ -292,6 +381,17 @@ public class OutlookGraphClientPayloadTests
 
         Assert.That(
             () => client.UpdateEventAsync("AAkA-fake-event-id"),
+            Throws.ArgumentException);
+    }
+
+    [Test]
+    public void UpdateEventAsync_throws_when_timeZone_is_provided_without_start_or_end()
+    {
+        var httpClient = new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
+        var client = new OutlookGraphClient(new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider()));
+
+        Assert.That(
+            () => client.UpdateEventAsync("AAkA-fake-event-id", timeZone: "America/New_York"),
             Throws.ArgumentException);
     }
 }

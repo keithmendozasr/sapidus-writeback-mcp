@@ -92,12 +92,13 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string subject,
         DateTimeOffset start,
         DateTimeOffset end,
+        string timeZone,
         string? location = null,
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
         CancellationToken cancellationToken = default)
     {
-        var calendarEvent = BuildEvent(subject, start, end, location, bodyText, attendeeAddresses);
+        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses);
         var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -111,15 +112,19 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? subject = null,
         DateTimeOffset? start = null,
         DateTimeOffset? end = null,
+        string? timeZone = null,
         string? location = null,
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
         CancellationToken cancellationToken = default)
     {
+        if (timeZone is not null && start is null && end is null)
+            throw new ArgumentException("timeZone can only be provided together with start and/or end.");
+
         if (subject is null && start is null && end is null && location is null && bodyText is null && attendeeAddresses is null)
             throw new ArgumentException("At least one of subject, start, end, location, bodyText, or attendeeAddresses must be provided.");
 
-        var calendarEvent = BuildUpdateEvent(subject, start, end, location, bodyText, attendeeAddresses);
+        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses);
         var updated = await client.Me.Events[eventId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return updated?.Id ?? eventId;
@@ -155,6 +160,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string subject,
         DateTimeOffset start,
         DateTimeOffset end,
+        string timeZone,
         string? location,
         string? bodyText,
         IEnumerable<string>? attendeeAddresses = null)
@@ -162,8 +168,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         var calendarEvent = new Event
         {
             Subject = subject,
-            Start = ToGraphDateTime(start),
-            End = ToGraphDateTime(end),
+            Start = ToGraphDateTime(start, timeZone),
+            End = ToGraphDateTime(end, timeZone),
         };
 
         if (location is not null)
@@ -189,6 +195,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? subject,
         DateTimeOffset? start,
         DateTimeOffset? end,
+        string? timeZone,
         string? location,
         string? bodyText,
         IEnumerable<string>? attendeeAddresses)
@@ -199,10 +206,10 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             calendarEvent.Subject = subject;
 
         if (start is not null)
-            calendarEvent.Start = ToGraphDateTime(start.Value);
+            calendarEvent.Start = ToGraphDateTime(start.Value, timeZone);
 
         if (end is not null)
-            calendarEvent.End = ToGraphDateTime(end.Value);
+            calendarEvent.End = ToGraphDateTime(end.Value, timeZone);
 
         if (location is not null)
             calendarEvent.Location = new Location { DisplayName = location };
@@ -216,9 +223,33 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         return calendarEvent;
     }
 
-    private static DateTimeTimeZone ToGraphDateTime(DateTimeOffset value) => new()
+    /// <summary>
+    /// When <paramref name="timeZoneId"/> is null (only reachable from an update that changes
+    /// start/end without specifying a timezone), preserves the legacy behavior byte-for-byte:
+    /// TimeZone "UTC" and a DateTime string carrying a trailing "Z". When a timezone id is given
+    /// (always true for event creation, since it's required there), converts to that zone's local
+    /// wall-clock time instead, with no offset/Z suffix - the format Graph expects for a named
+    /// zone. Do not "fix" this into one consistent format: doing so would change the wire format
+    /// for existing update callers that never pass a timezone.
+    /// </summary>
+    private static DateTimeTimeZone ToGraphDateTime(DateTimeOffset value, string? timeZoneId)
     {
-        DateTime = value.UtcDateTime.ToString("o"),
-        TimeZone = "UTC",
-    };
+        if (timeZoneId is null)
+        {
+            return new DateTimeTimeZone
+            {
+                DateTime = value.UtcDateTime.ToString("o"),
+                TimeZone = "UTC",
+            };
+        }
+
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        var localDateTime = TimeZoneInfo.ConvertTime(value, timeZone).DateTime;
+
+        return new DateTimeTimeZone
+        {
+            DateTime = localDateTime.ToString("o"),
+            TimeZone = timeZoneId,
+        };
+    }
 }

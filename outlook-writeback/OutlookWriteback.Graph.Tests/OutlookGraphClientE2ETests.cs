@@ -56,6 +56,7 @@ public class OutlookGraphClientE2ETests
             "Phase 0 spike - outlook-writeback",
             start,
             end,
+            "UTC",
             bodyText: "Created by the Phase 0 spike integration test. Safe to delete.");
 
         Assert.That(eventId, Is.Not.Null.And.Not.Empty);

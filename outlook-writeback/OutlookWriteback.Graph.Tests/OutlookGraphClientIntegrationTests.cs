@@ -111,7 +111,7 @@ public class OutlookGraphClientIntegrationTests
         });
 
         var start = DateTimeOffset.UtcNow.AddDays(1);
-        var eventId = await CreateClient(handler).CreateEventAsync("Standup", start, start.AddHours(1));
+        var eventId = await CreateClient(handler).CreateEventAsync("Standup", start, start.AddHours(1), "UTC");
 
         Assert.That(eventId, Is.EqualTo("AAkA-fake-event-id"));
     }
@@ -137,7 +137,36 @@ public class OutlookGraphClientIntegrationTests
             "Standup",
             start,
             start.AddHours(1),
+            "UTC",
             attendeeAddresses: ["alice@example.com"]);
+    }
+
+    [Test]
+    public async Task CreateEventAsync_serializes_a_non_utc_timeZone_with_no_offset_suffix()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(body, Does.Contain("\"timeZone\":\"America/New_York\""));
+                Assert.That(body, Does.Not.Match("\"dateTime\":\"[^\"]*Z\""));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+
+        await CreateClient(handler).CreateEventAsync(
+            "Standup",
+            start,
+            start.AddHours(1),
+            "America/New_York");
     }
 
     [Test]

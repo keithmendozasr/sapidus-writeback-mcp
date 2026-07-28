@@ -27,6 +27,14 @@ Run from the repo root (`sapidus-writeback-mcp.slnx`):
 
 The E2E tier uses `InteractiveBrowserCredential`, which requires the "Outlook Writeback MCP" Entra app to be registered as a **public client** with `http://localhost` listed under **Mobile and desktop** redirect URIs (not a web/confidential registration) — see the doc comment on `OutlookGraphClient.CreateWithInteractiveBrowserAuth`. This tier still only hits the library directly, not the deployed Azure endpoint — extending it to a deployed-E2E tier (speaking real MCP Streamable HTTP to the live endpoint) is a reasonable stretch item, not yet built.
 
+## Releases and versioning
+
+This server's canonical version lives in `version.txt` (semver, pre-1.0). [release-please](https://github.com/googleapis/release-please) mirrors it automatically into `host.json`'s `extensions.mcp.serverVersion` — the MCP protocol field clients read — on every release; don't hand-edit `serverVersion` directly, it'll be overwritten by the next release PR.
+
+release-please watches Conventional Commit messages on `main` and keeps an up-to-date release PR open scoped to this folder (`outlook-writeback/CHANGELOG.md` + `version.txt` + the `host.json` mirror — see root `release-please-config.json`). Merging that PR cuts an `outlook-writeback-vX.Y.Z` tag and GitHub Release. Pre-1.0, breaking changes bump minor, not major (`bump-minor-pre-major`, set repo-wide).
+
+The release PR is created with the default `GITHUB_TOKEN`, which doesn't itself trigger further Actions workflows on the commits/tags it creates — if a future build/deploy-on-tag workflow needs to fire automatically off a release-please tag, it'll need a PAT or GitHub App token instead.
+
 ## Key points for a future implementer
 
 - Scopes: `Mail.ReadWrite` and `Calendars.ReadWrite` only. No `Mail.Send` — the server can create/update drafts but structurally cannot send.

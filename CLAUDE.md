@@ -91,3 +91,4 @@ Every resource in every server's resource group gets the tag `project: sapidus-w
 
 - Keep the documentation in sync with changes made as necessary. At minimum, this means both this root `CLAUDE.md` and every per-server `CLAUDE.md` — update each as its own scope changes, not just at milestone boundaries.
 - Each server folder carries its own `CLAUDE.md` for build/test commands and runtime specifics scoped to that server. Root `CLAUDE.md` stays a cross-server rules doc plus a one-line-per-server pointer in `## Servers` — don't let per-server implementation detail accumulate back into this file.
+- Every server gets its own release-please PR, never a shared repo-wide one — see `REPO-CONVENTIONS.md` §8 for the registration steps required when adding a new server folder, and that server's own `CLAUDE.md` for its specific versioning details.

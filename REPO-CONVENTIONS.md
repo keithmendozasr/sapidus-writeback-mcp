@@ -110,7 +110,7 @@ This keeps the family visible as one rollup in Azure Cost Management even though
 ## 8. Adding a new server: checklist
 
 1. Create `sapidus-writeback-mcp/<server-name>/` with its own `docs/active/` spec, scoped to the specific Graph write gap it fills (mirror the shape of an existing server's docs, e.g. `outlook-writeback/docs/`).
-2. Register the new server with release-please so it gets its own independent release PR: add a `"<server-name>"` entry under `packages` in root `release-please-config.json` (mirror the `outlook-writeback` entry — `release-type: "simple"`, an `extra-files` entry pointing at that server's own `host.json` `serverVersion`), seed its starting version in `.release-please-manifest.json`, and pre-create `<server-name>/version.txt` with that same version. `separate-pull-requests` and `bump-minor-pre-major` are already set repo-wide — nothing else to configure per server.
+2. Register the new server with release-please so it gets its own independent release PR: add a `<server-name>` package entry to `release-please-config.json` (mirror the `outlook-writeback` entry), and seed `.release-please-manifest.json` and `<server-name>/version.txt` with its starting version.
 3. Add that server's own `CLAUDE.md` (build/test commands, runtime specifics) and a one-line pointer to it in root `CLAUDE.md`'s `## Servers` section — nothing more detailed than that goes in the root file.
 4. Register a new single-tenant Entra App Registration, display name `"<Server Name> MCP"`, requesting only the Graph scopes that server needs.
 5. Create `<server-name>-rg` resource group and `<server-name>-func` Function App.

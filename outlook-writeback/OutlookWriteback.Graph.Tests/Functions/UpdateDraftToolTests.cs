@@ -1,0 +1,76 @@
+using System.Text;
+using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions.Authentication;
+using OutlookWriteback.Functions;
+using OutlookWriteback.Graph;
+using OutlookWriteback.Graph.Tests.TestSupport;
+
+namespace OutlookWriteback.Graph.Tests.Functions;
+
+[TestFixture]
+[Category("Unit")]
+public class UpdateDraftToolTests
+{
+    private static OutlookGraphClient CreateClient(StubHttpMessageHandler handler)
+    {
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
+        var graphClient = new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider());
+
+        return new OutlookGraphClient(graphClient);
+    }
+
+    [Test]
+    public void RunAsync_throws_when_a_recipient_entry_is_blank()
+    {
+        var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("Graph should not be called."));
+        var tool = new UpdateDraftTool(CreateClient(handler));
+
+        Assert.That(
+            () => tool.RunAsync(null!, "AAMk-fake-draft-id", ["alice@example.com", "   "], null, null, null, null, null),
+            Throws.ArgumentException);
+    }
+
+    [Test]
+    public void RunAsync_throws_when_the_same_address_appears_in_more_than_one_list()
+    {
+        var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("Graph should not be called."));
+        var tool = new UpdateDraftTool(CreateClient(handler));
+
+        Assert.That(
+            () => tool.RunAsync(null!, "AAMk-fake-draft-id", ["alice@example.com"], null, null, null, ["alice@example.com"], null),
+            Throws.ArgumentException);
+    }
+
+    [Test]
+    public async Task RunAsync_does_not_throw_when_only_cc_is_provided()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+        }));
+        var tool = new UpdateDraftTool(CreateClient(handler));
+
+        var result = await tool.RunAsync(null!, "AAMk-fake-draft-id", null, null, null, null, ["bob@example.com"], null);
+
+        Assert.That(result, Does.Contain("AAMk-fake-draft-id"));
+    }
+
+    [Test]
+    public async Task RunAsync_clears_cc_when_an_empty_array_is_provided()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            Assert.That(body, Does.Contain("\"ccRecipients\":[]"));
+
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAMk-fake-draft-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+        var tool = new UpdateDraftTool(CreateClient(handler));
+
+        await tool.RunAsync(null!, "AAMk-fake-draft-id", null, null, null, null, [], null);
+    }
+}

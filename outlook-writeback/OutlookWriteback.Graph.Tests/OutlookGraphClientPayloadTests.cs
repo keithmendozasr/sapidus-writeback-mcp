@@ -127,6 +127,22 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildEvent_sets_attendees_to_an_empty_not_null_list_when_an_empty_array_is_provided()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup",
+            start,
+            start.AddHours(1),
+            location: null,
+            bodyText: null,
+            attendeeAddresses: []);
+
+        Assert.That(calendarEvent.Attendees, Is.Empty);
+    }
+
+    [Test]
     public void BuildUpdateDraftMessage_sets_only_the_subject_when_only_subject_changes()
     {
         var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddresses: null, subject: "New subject", bodyText: null);

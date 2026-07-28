@@ -6,6 +6,8 @@ Server-specific guidance for working in this folder. Cross-server rules live in 
 
 All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. Full implementation history and design rationale live in `docs/archive/` (completed/superseded specs) and `DEPLOYMENT.md` (the operational runbook) — not duplicated here. In-progress specs, if any, live in `docs/active/`.
 
+`docs/active/prd-multi-recipient.md` is implemented and merged in code but not yet deployed to the production Function App — see the root `CLAUDE.md` PRD-lifecycle rule (`## Document maintenance`) for why it hasn't moved to `docs/archive/` yet.
+
 ## Runtime
 
 .NET 10 (`net10.0`), isolated worker model.

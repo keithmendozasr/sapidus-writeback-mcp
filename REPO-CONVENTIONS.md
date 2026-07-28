@@ -110,12 +110,13 @@ This keeps the family visible as one rollup in Azure Cost Management even though
 ## 8. Adding a new server: checklist
 
 1. Create `sapidus-writeback-mcp/<server-name>/` with its own `docs/active/` spec, scoped to the specific Graph write gap it fills (mirror the shape of an existing server's docs, e.g. `outlook-writeback/docs/`).
-2. Add that server's own `CLAUDE.md` (build/test commands, runtime specifics) and a one-line pointer to it in root `CLAUDE.md`'s `## Servers` section — nothing more detailed than that goes in the root file.
-3. Register a new single-tenant Entra App Registration, display name `"<Server Name> MCP"`, requesting only the Graph scopes that server needs.
-4. Create `<server-name>-rg` resource group and `<server-name>-func` Function App.
-5. Create new Key Vault secrets for this server's Graph credentials — do not reuse another server's Key Vault entries.
-6. Tag all new resources `project: sapidus-writeback-mcp`.
-7. Only pull code into `shared/` if it's genuinely capability-agnostic transport/auth code per §4 — default to keeping new logic in the server's own folder.
+2. Register the new server with release-please so it gets its own independent release PR: add a `"<server-name>"` entry under `packages` in root `release-please-config.json` (mirror the `outlook-writeback` entry — `release-type: "simple"`, an `extra-files` entry pointing at that server's own `host.json` `serverVersion`), seed its starting version in `.release-please-manifest.json`, and pre-create `<server-name>/version.txt` with that same version. `separate-pull-requests` and `bump-minor-pre-major` are already set repo-wide — nothing else to configure per server.
+3. Add that server's own `CLAUDE.md` (build/test commands, runtime specifics) and a one-line pointer to it in root `CLAUDE.md`'s `## Servers` section — nothing more detailed than that goes in the root file.
+4. Register a new single-tenant Entra App Registration, display name `"<Server Name> MCP"`, requesting only the Graph scopes that server needs.
+5. Create `<server-name>-rg` resource group and `<server-name>-func` Function App.
+6. Create new Key Vault secrets for this server's Graph credentials — do not reuse another server's Key Vault entries.
+7. Tag all new resources `project: sapidus-writeback-mcp`.
+8. Only pull code into `shared/` if it's genuinely capability-agnostic transport/auth code per §4 — default to keeping new logic in the server's own folder.
 
 ## 9. MCP protocol and architecture decisions must be agent-agnostic
 

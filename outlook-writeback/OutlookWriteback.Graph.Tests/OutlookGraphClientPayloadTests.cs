@@ -13,7 +13,7 @@ public class OutlookGraphClientPayloadTests
     public void BuildDraftMessage_maps_recipient_subject_and_plain_text_body()
     {
         var message = OutlookGraphClient.BuildDraftMessage(
-            "owner@example.com",
+            ["owner@example.com"],
             "Quarterly report",
             "Draft body text.");
 
@@ -22,7 +22,59 @@ public class OutlookGraphClientPayloadTests
             Assert.That(message.Subject, Is.EqualTo("Quarterly report"));
             Assert.That(message.Body?.ContentType, Is.EqualTo(BodyType.Text));
             Assert.That(message.Body?.Content, Is.EqualTo("Draft body text."));
-            Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
+            Assert.That(
+                message.ToRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "owner@example.com" }));
+        });
+    }
+
+    [Test]
+    public void BuildDraftMessage_maps_multiple_to_recipients()
+    {
+        var message = OutlookGraphClient.BuildDraftMessage(
+            ["alice@example.com", "bob@example.com"],
+            "Quarterly report",
+            "Draft body text.");
+
+        Assert.That(
+            message.ToRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+            Is.EqualTo(new[] { "alice@example.com", "bob@example.com" }));
+    }
+
+    [Test]
+    public void BuildDraftMessage_maps_cc_and_bcc_when_provided()
+    {
+        var message = OutlookGraphClient.BuildDraftMessage(
+            ["alice@example.com"],
+            "Quarterly report",
+            "Draft body text.",
+            ccAddresses: ["bob@example.com"],
+            bccAddresses: ["carol@example.com"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                message.CcRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "bob@example.com" }));
+            Assert.That(
+                message.BccRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "carol@example.com" }));
+        });
+    }
+
+    [Test]
+    public void BuildDraftMessage_leaves_all_recipient_lists_empty_when_none_are_provided()
+    {
+        var message = OutlookGraphClient.BuildDraftMessage(
+            null,
+            "Placeholder",
+            "Draft body text.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.ToRecipients, Is.Empty);
+            Assert.That(message.CcRecipients, Is.Empty);
+            Assert.That(message.BccRecipients, Is.Empty);
         });
     }
 
@@ -30,7 +82,7 @@ public class OutlookGraphClientPayloadTests
     public void BuildDraftMessage_sets_html_content_type_when_isHtml_is_true()
     {
         var message = OutlookGraphClient.BuildDraftMessage(
-            "owner@example.com",
+            ["owner@example.com"],
             "Metrics for period ending July 8, 2026",
             "<table><tr><td>2026-07-08</td></tr></table>",
             isHtml: true);
@@ -129,6 +181,23 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
+    public void BuildEvent_sets_attendees_to_an_empty_not_null_list_when_an_empty_array_is_provided()
+    {
+        var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
+
+        var calendarEvent = OutlookGraphClient.BuildEvent(
+            "Standup",
+            start,
+            start.AddHours(1),
+            timeZone: "UTC",
+            location: null,
+            bodyText: null,
+            attendeeAddresses: []);
+
+        Assert.That(calendarEvent.Attendees, Is.Empty);
+    }
+
+    [Test]
     public void BuildEvent_sets_reminder_fields_when_reminderMinutesBeforeStart_is_provided()
     {
         var start = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.FromHours(-5));
@@ -176,7 +245,7 @@ public class OutlookGraphClientPayloadTests
     [Test]
     public void BuildUpdateDraftMessage_sets_only_the_subject_when_only_subject_changes()
     {
-        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: null, subject: "New subject", bodyText: null);
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddresses: null, subject: "New subject", bodyText: null);
 
         Assert.Multiple(() =>
         {
@@ -189,7 +258,7 @@ public class OutlookGraphClientPayloadTests
     [Test]
     public void BuildUpdateDraftMessage_sets_only_the_body_when_only_body_changes()
     {
-        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: null, subject: null, bodyText: "New body text.");
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddresses: null, subject: null, bodyText: "New body text.");
 
         Assert.Multiple(() =>
         {
@@ -201,32 +270,78 @@ public class OutlookGraphClientPayloadTests
     }
 
     [Test]
-    public void BuildUpdateDraftMessage_sets_only_the_recipient_when_only_recipient_changes()
+    public void BuildUpdateDraftMessage_sets_only_the_recipients_when_only_recipients_change()
     {
-        var message = OutlookGraphClient.BuildUpdateDraftMessage(toAddress: "owner@example.com", subject: null, bodyText: null);
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(
+            toAddresses: ["alice@example.com", "bob@example.com"],
+            subject: null,
+            bodyText: null);
 
         Assert.Multiple(() =>
         {
             Assert.That(message.Subject, Is.Null);
             Assert.That(message.Body, Is.Null);
-            Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
+            Assert.That(
+                message.ToRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "alice@example.com", "bob@example.com" }));
         });
+    }
+
+    [Test]
+    public void BuildUpdateDraftMessage_sets_only_cc_when_only_cc_changes()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(
+            toAddresses: null,
+            subject: null,
+            bodyText: null,
+            ccAddresses: ["bob@example.com"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.ToRecipients, Is.Null);
+            Assert.That(message.BccRecipients, Is.Null);
+            Assert.That(
+                message.CcRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "bob@example.com" }));
+        });
+    }
+
+    [Test]
+    public void BuildUpdateDraftMessage_clears_cc_when_an_empty_array_is_provided()
+    {
+        var message = OutlookGraphClient.BuildUpdateDraftMessage(
+            toAddresses: null,
+            subject: null,
+            bodyText: null,
+            ccAddresses: []);
+
+        Assert.That(message.CcRecipients, Is.Empty);
     }
 
     [Test]
     public void BuildUpdateDraftMessage_sets_all_fields_when_all_are_provided()
     {
         var message = OutlookGraphClient.BuildUpdateDraftMessage(
-            toAddress: "owner@example.com",
+            toAddresses: ["alice@example.com"],
             subject: "New subject",
-            bodyText: "New body text.");
+            bodyText: "New body text.",
+            ccAddresses: ["bob@example.com"],
+            bccAddresses: ["carol@example.com"]);
 
         Assert.Multiple(() =>
         {
             Assert.That(message.Subject, Is.EqualTo("New subject"));
             Assert.That(message.Body?.ContentType, Is.EqualTo(BodyType.Text));
             Assert.That(message.Body?.Content, Is.EqualTo("New body text."));
-            Assert.That(message.ToRecipients?.Single().EmailAddress?.Address, Is.EqualTo("owner@example.com"));
+            Assert.That(
+                message.ToRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "alice@example.com" }));
+            Assert.That(
+                message.CcRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "bob@example.com" }));
+            Assert.That(
+                message.BccRecipients?.Select(recipient => recipient.EmailAddress?.Address),
+                Is.EqualTo(new[] { "carol@example.com" }));
         });
     }
 
@@ -234,7 +349,7 @@ public class OutlookGraphClientPayloadTests
     public void BuildUpdateDraftMessage_sets_html_content_type_when_isHtml_is_true()
     {
         var message = OutlookGraphClient.BuildUpdateDraftMessage(
-            toAddress: null,
+            toAddresses: null,
             subject: null,
             bodyText: "<table><tr><td>2026-07-08</td></tr></table>",
             isHtml: true);
@@ -380,6 +495,22 @@ public class OutlookGraphClientPayloadTests
                 calendarEvent.Attendees?.Select(attendee => attendee.EmailAddress?.Address),
                 Is.EqualTo(new[] { "alice@example.com" }));
         });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_clears_attendees_to_an_empty_not_null_list_when_an_empty_array_is_provided()
+    {
+        var calendarEvent = OutlookGraphClient.BuildUpdateEvent(
+            subject: null,
+            start: null,
+            end: null,
+            timeZone: null,
+            location: null,
+            bodyText: null,
+            attendeeAddresses: [],
+            reminderMinutesBeforeStart: null);
+
+        Assert.That(calendarEvent.Attendees, Is.Empty);
     }
 
     [Test]

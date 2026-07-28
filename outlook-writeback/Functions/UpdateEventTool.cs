@@ -10,7 +10,8 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "update_event",
-            "Edit fields on an existing calendar event. " +
+            "Edit fields on an existing calendar event. attendees entries must be non-blank - a generic failure with no " +
+                "specific reason usually means a blank entry slipped into attendees, so re-check it before retrying. " +
                 "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
                 "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
                 "Reconnect) before retrying - don't silently retry or fail.")]
@@ -27,8 +28,10 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
             string? timeZone,
         [McpToolProperty("location", "New location, if changing it.")] string? location,
         [McpToolProperty("body", "New notes/description, if changing it.")] string? body,
-        [McpToolProperty("attendees", "New comma-separated attendee email addresses, if changing it. Replaces the existing attendee list entirely.")]
-            string? attendees,
+        [McpToolProperty(
+            "attendees",
+            "New attendee email addresses, if changing them. Omit to leave the attendee list unchanged; pass an empty array to clear it entirely.")]
+            string[]? attendees,
         [McpToolProperty(
             "reminderMinutes",
             "Minutes before the event start to show a reminder, if setting/changing one (e.g. 15; 0 means at start " +
@@ -36,9 +39,7 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
                 "explicitly turn off an existing reminder through this tool.")]
             int? reminderMinutes)
     {
-        var attendeeAddresses = string.IsNullOrWhiteSpace(attendees)
-            ? null
-            : attendees.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var attendeeAddresses = RecipientList.Normalize(attendees);
 
         var updatedId = await client.UpdateEventAsync(
             eventId,

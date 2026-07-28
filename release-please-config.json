@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bump-minor-pre-major": true,
+  "separate-pull-requests": true,
+  "packages": {
+    "outlook-writeback": {
+      "release-type": "simple",
+      "package-name": "outlook-writeback",
+      "include-v-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "host.json",
+          "jsonpath": "$.extensions.mcp.serverVersion"
+        }
+      ]
+    }
+  }
+}

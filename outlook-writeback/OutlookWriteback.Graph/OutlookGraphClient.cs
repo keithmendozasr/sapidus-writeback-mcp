@@ -59,13 +59,15 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
     }
 
     public async Task<string?> CreateDraftAsync(
-        string toAddress,
+        IEnumerable<string>? toAddresses,
         string subject,
         string bodyText,
         bool isHtml = false,
+        IEnumerable<string>? ccAddresses = null,
+        IEnumerable<string>? bccAddresses = null,
         CancellationToken cancellationToken = default)
     {
-        var message = BuildDraftMessage(toAddress, subject, bodyText, isHtml);
+        var message = BuildDraftMessage(toAddresses, subject, bodyText, isHtml, ccAddresses, bccAddresses);
         var created = await client.Me.Messages.PostAsync(message, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -73,16 +75,18 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
 
     public async Task<string?> UpdateDraftAsync(
         string draftId,
-        string? toAddress = null,
+        IEnumerable<string>? toAddresses = null,
         string? subject = null,
         string? bodyText = null,
         bool isHtml = false,
+        IEnumerable<string>? ccAddresses = null,
+        IEnumerable<string>? bccAddresses = null,
         CancellationToken cancellationToken = default)
     {
-        if (toAddress is null && subject is null && bodyText is null)
-            throw new ArgumentException("At least one of toAddress, subject, or bodyText must be provided.");
+        if (toAddresses is null && subject is null && bodyText is null && ccAddresses is null && bccAddresses is null)
+            throw new ArgumentException("At least one of toAddresses, subject, bodyText, ccAddresses, or bccAddresses must be provided.");
 
-        var message = BuildUpdateDraftMessage(toAddress, subject, bodyText, isHtml);
+        var message = BuildUpdateDraftMessage(toAddresses, subject, bodyText, isHtml, ccAddresses, bccAddresses);
         var updated = await client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
 
         return updated?.Id ?? draftId;
@@ -145,14 +149,28 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
     public Task DeleteEventAsync(string eventId, CancellationToken cancellationToken = default) =>
         client.Me.Events[eventId].DeleteAsync(cancellationToken: cancellationToken);
 
-    internal static Message BuildDraftMessage(string toAddress, string subject, string bodyText, bool isHtml = false) => new()
+    internal static Message BuildDraftMessage(
+        IEnumerable<string>? toAddresses,
+        string subject,
+        string bodyText,
+        bool isHtml = false,
+        IEnumerable<string>? ccAddresses = null,
+        IEnumerable<string>? bccAddresses = null) => new()
     {
         Subject = subject,
         Body = new ItemBody { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = bodyText },
-        ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = toAddress } }],
+        ToRecipients = BuildRecipients(toAddresses ?? []),
+        CcRecipients = BuildRecipients(ccAddresses ?? []),
+        BccRecipients = BuildRecipients(bccAddresses ?? []),
     };
 
-    internal static Message BuildUpdateDraftMessage(string? toAddress, string? subject, string? bodyText, bool isHtml = false)
+    internal static Message BuildUpdateDraftMessage(
+        IEnumerable<string>? toAddresses,
+        string? subject,
+        string? bodyText,
+        bool isHtml = false,
+        IEnumerable<string>? ccAddresses = null,
+        IEnumerable<string>? bccAddresses = null)
     {
         var message = new Message();
 
@@ -162,11 +180,20 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         if (bodyText is not null)
             message.Body = new ItemBody { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = bodyText };
 
-        if (toAddress is not null)
-            message.ToRecipients = [new Recipient { EmailAddress = new EmailAddress { Address = toAddress } }];
+        if (toAddresses is not null)
+            message.ToRecipients = BuildRecipients(toAddresses);
+
+        if (ccAddresses is not null)
+            message.CcRecipients = BuildRecipients(ccAddresses);
+
+        if (bccAddresses is not null)
+            message.BccRecipients = BuildRecipients(bccAddresses);
 
         return message;
     }
+
+    private static List<Recipient> BuildRecipients(IEnumerable<string> addresses) =>
+        [.. addresses.Select(address => new Recipient { EmailAddress = new EmailAddress { Address = address } })];
 
     internal static Event BuildEvent(
         string subject,

@@ -24,8 +24,7 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
         [McpToolProperty("body", "New notes/description, if changing it.")] string? body,
         [McpToolProperty(
             "attendees",
-            "New attendee email addresses, if changing them. Omit to leave the attendee list unchanged; pass an empty array to clear it entirely. " +
-                "Note: this is a JSON array, unlike create_event's attendees which is a comma-separated string - the two tools intentionally use different wire types for the same field name.")]
+            "New attendee email addresses, if changing them. Omit to leave the attendee list unchanged; pass an empty array to clear it entirely.")]
             string[]? attendees)
     {
         var attendeeAddresses = RecipientList.Normalize(attendees);

@@ -5,6 +5,8 @@
   "packages": {
     "outlook-writeback": {
       "release-type": "simple",
+      "package-name": "outlook-writeback",
+      "include-v-in-tag": false,
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

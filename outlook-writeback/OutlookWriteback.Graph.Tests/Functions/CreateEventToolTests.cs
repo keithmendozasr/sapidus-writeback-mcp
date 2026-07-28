@@ -62,4 +62,25 @@ public class CreateEventToolTests
             null,
             ["  alice@example.com  "]);
     }
+
+    [Test]
+    public async Task RunAsync_creates_an_event_with_no_attendees_when_attendees_is_omitted()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Created)
+        {
+            Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+        }));
+        var tool = new CreateEventTool(CreateClient(handler));
+
+        var result = await tool.RunAsync(
+            null!,
+            "Standup",
+            "2026-08-01T09:00:00-05:00",
+            "2026-08-01T09:30:00-05:00",
+            null,
+            null,
+            null);
+
+        Assert.That(result, Does.Contain("AAkA-fake-event-id"));
+    }
 }

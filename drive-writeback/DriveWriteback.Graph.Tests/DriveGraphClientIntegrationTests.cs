@@ -67,4 +67,29 @@ public class DriveGraphClientIntegrationTests
             Assert.That(resolution.MissingSegments, Is.EqualTo(new[] { "b", "c" }));
         });
     }
+
+    [Test]
+    public async Task CreateFileAsync_replace_sends_a_single_unconditional_PUT_with_no_pre_check()
+    {
+        var requestCount = 0;
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            requestCount++;
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Put));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"new-id"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var result = await CreateClient(handler).CreateFileAsync("notes.md", "content", conflictBehavior: "replace", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result?.Id, Is.EqualTo("new-id"));
+            Assert.That(requestCount, Is.EqualTo(1), "replace should not send any pre-check request before the PUT.");
+        });
+    }
 }

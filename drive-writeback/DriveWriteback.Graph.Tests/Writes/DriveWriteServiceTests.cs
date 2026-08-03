@@ -95,4 +95,17 @@ public class DriveWriteServiceTests
             () => service.CreateFileAsync("sub/notes.md", "content", conflictBehavior: "replace", driveId: "drive-id"),
             Throws.InstanceOf<DriveParentNotFoundException>());
     }
+
+    [Test]
+    public void CreateFileAsync_throws_DriveContentTooLargeException_before_any_network_call()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Content-size validation must fail before any Graph call - dry-run or not."));
+        var options = new DriveWriteOptions(DryRun: true, MaxContentBytes: 5);
+        var service = CreateService(handler, options);
+
+        Assert.That(
+            () => service.CreateFileAsync("notes.md", "this content is definitely over five bytes", driveId: "drive-id"),
+            Throws.InstanceOf<DriveContentTooLargeException>());
+    }
 }

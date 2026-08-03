@@ -139,9 +139,10 @@ Manual, not CI/CD, same rationale as `outlook-writeback`. The `--dotnet-isolated
 
 ```
 cd drive-writeback
+cp local.settings.json.example local.settings.json
 func start
 ```
-Point `local.settings.json`'s `AzureWebJobsStorage` at the real storage account (or run Azurite) and set `DRIVE_WRITEBACK_TENANT_ID`/`CLIENT_ID`/`KEY_VAULT_URI`/`DRY_RUN`/`MAX_CONTENT_BYTES` to exercise the real Key Vault + Entra app from a local run, via your own `az login` session (`DefaultAzureCredential` picks it up automatically). Leave `DRIVE_WRITEBACK_DRY_RUN` at `true` for this first run — confirm `create_folder`/`create_file` resolve and validate correctly before ever flipping it to `false` against real data.
+Copy the example first — `local.settings.json` is gitignored and won't exist otherwise, and `func start` fails immediately without one. Point the copy's `AzureWebJobsStorage` at the real storage account (or run Azurite) and set `DRIVE_WRITEBACK_TENANT_ID`/`CLIENT_ID`/`KEY_VAULT_URI`/`DRY_RUN`/`MAX_CONTENT_BYTES` to exercise the real Key Vault + Entra app from a local run, via your own `az login` session (`DefaultAzureCredential` picks it up automatically). Leave `DRIVE_WRITEBACK_DRY_RUN` at `true` for this first run — confirm `create_folder`/`create_file` resolve and validate correctly before ever flipping it to `false` against real data.
 
 ## Not yet added: Easy Auth / boundary-7b Connector app
 

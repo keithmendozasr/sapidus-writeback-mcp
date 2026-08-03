@@ -116,11 +116,10 @@ public sealed class DriveGraphClient(GraphServiceClient client)
             catch (DriveItemAlreadyExistsException)
             {
                 // Intermediate segments only need to exist for the next create to target
-                // them - no need to resolve their DriveItem representation, and every
-                // avoided GET here is one less roll of the propagation-lag dice below.
-                // Only the final segment's return value is something a caller ever uses.
+                // them - no need to resolve their DriveItem representation. Only the final
+                // segment's return value is something a caller ever uses.
                 current = isLastSegment
-                    ? await GetItemByPathWithRetryAsync(currentPath, driveId, cancellationToken)
+                    ? await ResolveExistingChildAsync(parentPath, segment, driveId, cancellationToken)
                     : null;
             }
 
@@ -131,30 +130,33 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     }
 
     /// <summary>
-    /// Observed live against homepluspower.info OneDrive (Phase 0 spike finding, see
-    /// docs/active/PRD-drive-write.md §11): a path-based GET immediately following a
-    /// 409-already-exists response for that same path can itself 404. The 409 already
-    /// proves the item exists, so this is propagation lag in OneDrive's path-resolution
-    /// index, not a real "doesn't exist" - a short bounded retry absorbs it.
+    /// Resolves an already-existing child by listing its parent's children and filtering
+    /// by name, rather than a direct colon-path GET on the child itself.
+    ///
+    /// Live E2E testing against homepluspower.info surfaced that a colon-path GET
+    /// (Items["root"].ItemWithPath(fullChildPath).GetAsync()) can 404 immediately after
+    /// the very 409 that proves the item exists - reproducibly, not just occasionally, and
+    /// a several-second bounded retry against that same call didn't clear it either. The
+    /// parent-listing path used here goes through Children, the exact mechanism that just
+    /// finished successfully creating this tree in the first place (see
+    /// CreateFolderSegmentAsync), so it isn't exposed to whatever the colon-path GET's
+    /// issue is. See docs/active/PRD-drive-write.md §11 for the write-up.
     /// </summary>
-    private async Task<DriveItem?> GetItemByPathWithRetryAsync(
-        string path,
+    private async Task<DriveItem?> ResolveExistingChildAsync(
+        string? parentPath,
+        string childName,
         string? driveId,
-        CancellationToken cancellationToken,
-        int maxAttempts = 4,
-        int delayMilliseconds = 750)
+        CancellationToken cancellationToken)
     {
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                return await GetItemByPathAsync(path, driveId, cancellationToken);
-            }
-            catch (ODataError error) when (error.ResponseStatusCode == 404 && attempt < maxAttempts)
-            {
-                await Task.Delay(delayMilliseconds, cancellationToken);
-            }
-        }
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var parent = ResolveRootItem(resolvedDriveId, parentPath);
+        var escapedName = childName.Replace("'", "''");
+
+        var children = await parent.Children.GetAsync(
+            requestConfiguration => requestConfiguration.QueryParameters.Filter = $"name eq '{escapedName}'",
+            cancellationToken: cancellationToken);
+
+        return children?.Value?.FirstOrDefault();
     }
 
     /// <summary>

@@ -5,4 +5,7 @@
     <Project Path="outlook-writeback/OutlookWriteback.csproj" />
     <Project Path="outlook-writeback/OutlookWriteback.Bootstrap/OutlookWriteback.Bootstrap.csproj" />
   </Folder>
+  <Folder Name="/drive-writeback/">
+    <Project Path="drive-writeback/DriveWriteback.Graph/DriveWriteback.Graph.csproj" />
+  </Folder>
 </Solution>

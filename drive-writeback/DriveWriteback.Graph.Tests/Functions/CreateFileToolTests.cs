@@ -105,4 +105,41 @@ public class CreateFileToolTests
             Assert.That(result, Does.Contain("https://example/notes.md"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_real_mode_states_the_rename_explicitly_when_the_item_landed_at_a_different_name()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                // The requested name already exists; the renamed candidate is free.
+                var isSuffixedCandidate = request.RequestUri!.ToString().Contains("(1)");
+
+                return Task.FromResult(new HttpResponseMessage(isSuffixedCandidate ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        isSuffixedCandidate
+                            ? """{"error":{"code":"itemNotFound","message":"Item not found"}}"""
+                            : """{"id":"existing-id"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"id":"renamed-id","name":"notes (1).md","size":7,"eTag":"\"etag-value\"","webUrl":"https://example/notes%20(1).md"}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var tool = CreateTool(handler, options);
+
+        var result = await tool.RunAsync(null!, "notes.md", "content", conflictBehavior: "rename", driveId: "drive-id");
+
+        Assert.That(result, Does.Contain("Renamed to \"notes (1).md\""), "the response must state the rename explicitly, not just report plain success at the requested path.");
+    }
 }

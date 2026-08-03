@@ -92,4 +92,24 @@ public class DriveGraphClientIntegrationTests
             Assert.That(requestCount, Is.EqualTo(1), "replace should not send any pre-check request before the PUT.");
         });
     }
+
+    [Test]
+    public void CreateFileAsync_fail_pre_checks_with_a_GET_and_throws_without_ever_sending_a_PUT()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            // "fail" must never PUT once the pre-check GET reports the target already
+            // exists - a PUT here would mean the client-side check was bypassed.
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Get));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        Assert.That(
+            () => CreateClient(handler).CreateFileAsync("notes.md", "content", conflictBehavior: "fail", driveId: "drive-id"),
+            Throws.InstanceOf<DriveItemAlreadyExistsException>());
+    }
 }

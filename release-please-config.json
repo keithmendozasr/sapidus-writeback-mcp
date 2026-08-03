@@ -20,7 +20,14 @@
       "release-type": "simple",
       "package-name": "drive-writeback",
       "include-v-in-tag": false,
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "host.json",
+          "jsonpath": "$.extensions.mcp.serverVersion"
+        }
+      ]
     }
   }
 }

@@ -27,14 +27,28 @@ Checklist of `az` commands to provision this server, kept as a runbook rather th
    az ad sp create --id <client-id>
    ```
 3. Resolve the two delegated Graph permission IDs this server needs — `Files.ReadWrite.All` and `Sites.Read.All` (PRD §6; no other scopes belong here). **Resolved dynamically here, not hardcoded** — unlike `outlook-writeback`'s doc, these two GUIDs weren't independently verified against a live tenant while writing this doc, and a wrong hardcoded permission GUID is a worse failure mode (silently requesting the wrong scope) than one extra `az rest` call:
+   PowerShell:
+   ```powershell
+   az rest --method GET `
+     --url "https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '00000003-0000-0000-c000-000000000000'&`$select=oauth2PermissionScopes" `
+     --query "value[0].oauth2PermissionScopes[?value=='Files.ReadWrite.All' || value=='Sites.Read.All'].{value:value,id:id}"
    ```
+   bash/Git Bash:
+   ```bash
    az rest --method GET \
      --url "https://graph.microsoft.com/v1.0/servicePrincipals?\$filter=appId eq '00000003-0000-0000-c000-000000000000'&\$select=oauth2PermissionScopes" \
      --query "value[0].oauth2PermissionScopes[?value=='Files.ReadWrite.All' || value=='Sites.Read.All'].{value:value,id:id}"
    ```
-   (`00000003-0000-0000-c000-000000000000` is Microsoft Graph's well-known resource `appId` — the same in every tenant.) Note the two returned `id` values as `<files-readwrite-all-id>` and `<sites-read-all-id>`.
+   (`00000003-0000-0000-c000-000000000000` is Microsoft Graph's well-known resource `appId` — the same in every tenant. The `` `$ ``/`\$` escaping before `filter`/`select` stops each shell from treating them as variable interpolation — PowerShell uses a backtick escape, bash/Git Bash uses a backslash; dropping it silently produces a broken query string rather than an error.) Note the two returned `id` values as `<files-readwrite-all-id>` and `<sites-read-all-id>`.
 4. Add the two permissions:
+
+   PowerShell:
+   ```powershell
+   az ad app permission add --id <client-id> --api 00000003-0000-0000-c000-000000000000 `
+     --api-permissions <files-readwrite-all-id>=Scope <sites-read-all-id>=Scope
    ```
+   bash/Git Bash:
+   ```bash
    az ad app permission add --id <client-id> --api 00000003-0000-0000-c000-000000000000 \
      --api-permissions <files-readwrite-all-id>=Scope <sites-read-all-id>=Scope
    ```
@@ -74,7 +88,22 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
 1. Resource group: `az group create -n <server>-rg -l <region> --tags project=sapidus-writeback-mcp`.
 2. Storage account (Flex Consumption's required host storage): `az storage account create -g <server>-rg -n <server>sa -l <region> --sku Standard_LRS --tags project=sapidus-writeback-mcp`.
 3. Function App on Flex Consumption, .NET 10 isolated worker, capped at max instance count 1 (same single-user-refresh-token-races-itself reasoning as `outlook-writeback` — see `DriveWriteback.Graph/Auth/SilentGraphCredential.cs`):
+
+   PowerShell:
+   ```powershell
+   az functionapp create `
+     --resource-group <server>-rg `
+     --name <server>-func `
+     --storage-account <server>sa `
+     --flexconsumption-location <region> `
+     --runtime dotnet-isolated `
+     --runtime-version 10.0 `
+     --maximum-instance-count 1 `
+     --assign-identity "[system]" `
+     --tags project=sapidus-writeback-mcp
    ```
+   bash/Git Bash:
+   ```bash
    az functionapp create \
      --resource-group <server>-rg \
      --name <server>-func \
@@ -91,6 +120,8 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
 6. Grant your own Entra user the same **Key Vault Secrets Officer** role, scoped for the one-time bootstrap write below.
 7. **No confirmation-signing-key secret** — unlike `outlook-writeback`'s `delete-confirmation-signing-key`, this server has no delete surface yet (Phase 2), so there's nothing analogous to provision here.
 8. Function App application settings — no Key Vault-reference setting needed here (unlike `outlook-writeback`'s confirmation-signing-key), so the PowerShell `--%` gotcha that doc describes doesn't apply to this list; a plain backtick-continued command is fine:
+
+   PowerShell:
    ```powershell
    az functionapp config appsettings set `
      --resource-group <server>-rg `
@@ -100,6 +131,18 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
        DRIVE_WRITEBACK_CLIENT_ID=<"Drive Writeback MCP" app registration's client id> `
        DRIVE_WRITEBACK_KEY_VAULT_URI=https://<server>-kv.vault.azure.net/ `
        DRIVE_WRITEBACK_DRY_RUN=true `
+       DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576
+   ```
+   bash/Git Bash:
+   ```bash
+   az functionapp config appsettings set \
+     --resource-group <server>-rg \
+     --name <server>-func \
+     --settings \
+       DRIVE_WRITEBACK_TENANT_ID=<tenant id> \
+       DRIVE_WRITEBACK_CLIENT_ID=<"Drive Writeback MCP" app registration's client id> \
+       DRIVE_WRITEBACK_KEY_VAULT_URI=https://<server>-kv.vault.azure.net/ \
+       DRIVE_WRITEBACK_DRY_RUN=true \
        DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576
    ```
    Leave `DRIVE_WRITEBACK_DRY_RUN=true` until you've confirmed writes behave as expected against the live tenant, then flip it to `false` (no code change needed — see `Program.cs`).

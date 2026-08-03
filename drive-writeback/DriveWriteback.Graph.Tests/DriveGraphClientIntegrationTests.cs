@@ -175,4 +175,53 @@ public class DriveGraphClientIntegrationTests
 
         Assert.That(result?.Id, Is.EqualTo("renamed-id"));
     }
+
+    [Test]
+    public async Task GetItemAsync_routes_a_path_looking_string_to_the_colon_path_endpoint()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.That(request.RequestUri!.ToString(), Does.Contain("root:/notes.md:"));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var resolution = await CreateClient(handler).GetItemAsync("notes.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolution.ResolvedAsId, Is.False);
+            Assert.That(resolution.Item?.Id, Is.EqualTo("item-id"));
+        });
+    }
+
+    [Test]
+    public async Task GetItemAsync_routes_an_id_looking_string_to_the_items_by_id_endpoint()
+    {
+        const string itemId = "0176NADPLJLSYNNMETHFBJ7IQMXSGTZ4MA";
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.RequestUri!.ToString(), Does.Contain($"items/{itemId}"));
+                Assert.That(request.RequestUri!.ToString(), Does.Not.Contain("root:"));
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($$"""{"id":"{{itemId}}"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var resolution = await CreateClient(handler).GetItemAsync(itemId, driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolution.ResolvedAsId, Is.True);
+            Assert.That(resolution.Item?.Id, Is.EqualTo(itemId));
+        });
+    }
 }

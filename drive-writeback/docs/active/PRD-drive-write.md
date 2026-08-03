@@ -1,11 +1,11 @@
 # PRD — `drive-writeback` MCP Server
 
-**Status:** Draft (rev 2 — SharePoint in scope)
+**Status:** Draft (rev 3 — Phase 0 in progress)
 **Repo:** `graph-writeback-mcp`
 **Server:** `drive-writeback` (second server in the monorepo, after `outlook-writeback`)
 **Owner:** Keith
 **Tenant:** `homepluspower.info` — single-tenant, Entra managed domain (cloud authentication, no federation)
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 
 ---
 
@@ -256,17 +256,18 @@ Required controls:
 Unchanged from `outlook-writeback`:
 
 - C# / .NET 10 LTS, isolated worker model
-- Native AOT (`PublishAot=true`, `-r linux-x64` at publish)
 - Azure Functions, Flex Consumption plan on Linux
 - Azure Key Vault for the refresh token
 - MSAL for .NET
 - Application Insights
 
+**Native AOT — decided against (corrected from rev 2, which assumed it "unchanged from `outlook-writeback`").** That assumption didn't match reality: `outlook-writeback`'s `.csproj` never actually enables `PublishAot` — verified directly, no `PublishAot`/`RuntimeIdentifier`/`InvariantGlobalization` settings anywhere in that project tree. Combined with the SDK decision below, there's nothing left in tension: full `Microsoft.Graph` SDK, no AOT, matching the only working precedent this repo has. The Phase 0 "confirm Native AOT publish path" spike (§11) is removed as moot — there's no publish path to confirm once AOT isn't attempted.
+
 ### Dependency notes (session-start check)
 
 - **`ModelContextProtocol` (C# SDK):** current stable **1.4.1**; **2.0.0-preview.1** published. **Recommend hanging back on 1.4.x.** A 2.0 major on a preview tag, on an SDK that moved 0.4 → 0.6 → 1.x within roughly a year, is exactly the profile to let settle. Revisit once 2.0.0 GA has had a patch or two.
 - **`ModelContextProtocol.AspNetCore`:** track in lockstep with the core package.
-- **Microsoft.Graph SDK:** evaluate whether to take the SDK at all versus hand-rolling `HttpClient` calls against Graph REST. The full SDK is large and reflection-heavy — a poor fit for Native AOT. Carry forward `outlook-writeback`'s decision for consistency. Note that SharePoint site/drive resolution is more verbose to hand-roll than mail operations were.
+- **Microsoft.Graph SDK — decided: take the full SDK, matching `outlook-writeback`.** `outlook-writeback` already carries `Microsoft.Graph` 6.2.0 (checked 2026-08-02 — still current, no upgrade pending). The SDK's reflection-heavy behavior is only disqualifying if AOT is in play, and it isn't (see above), so there's no remaining reason to hand-roll `HttpClient` against Graph REST — especially given SharePoint site/drive resolution is more verbose to hand-roll than mail operations were.
 - **MSAL for .NET:** no action; matches `outlook-writeback`.
 
 *Raised, not applied.*
@@ -281,7 +282,7 @@ Unchanged from `outlook-writeback`:
 - Confirm site ID and item ID formats so the path-vs-ID discriminator in §5 is sound.
 - Confirm `Files.ReadWrite.All` + `Sites.Read.All` is genuinely sufficient for all six use cases against a real library — i.e. that no write path demands `Sites.ReadWrite.All`. **This is the highest-value spike in Phase 0**; if it fails, §6 changes materially.
 - Reproduce the required-metadata-column draft-state trap deliberately, so the detection logic is written against observed behavior.
-- Confirm Native AOT publish path with the chosen Graph client.
+- ~~Confirm Native AOT publish path with the chosen Graph client.~~ **Moot — decided against AOT (§10).** `outlook-writeback` never actually used Native AOT despite this doc previously assuming otherwise; drive-writeback now explicitly matches that (full `Microsoft.Graph` SDK, no `PublishAot`), so there's no publish path left to confirm.
 - **Confirm the official M365 connector's read output surfaces `driveId`/`siteId`/`itemId`** in a form passable to this server. This server assumes discovery/selection happens upstream (§3) and never browses — if the connector's output doesn't carry usable Graph IDs, that assumption breaks and a narrow `resolve_path` tool becomes necessary before Phase 1 can proceed. **Partially resolved:** live test against a OneDrive-for-Business file confirmed `driveId`/`itemId` are returned correctly. The connector could not resolve a folder's `itemId` directly (only the file's) — path-based addressing (`/drives/{drive-id}/root:/{path}:`) is the fallback for folders, so §4.3's "caller supplies a resolved ID" assumption should read "resolved ID or resolved path." Still untested: a file in a SharePoint team-site library (not personal OneDrive) — that's the case where `siteId`'s composite-triple format and a distinct `driveId` actually get exercised. **Deferred, not blocking** — no current use case needs a team site, so this doesn't have to be resolved before starting Phase 0/1 work. It does need to be resolved before any SharePoint-specific code path (site addressing in §5, the check-out/required-column traps in §8) is exercised or trusted — OneDrive-for-Business-only usage can proceed without it.
 - **Confirm "Assignment required" on the Connector app's Enterprise Application works on the tenant's actual Entra license tier.** The Q8 action item (restrict Connector app sign-in to a single user, closing the any-tenant-user-can-authenticate gap) depends on this. **Resolved:** tenant is Entra ID Free. Individual user assignment (not group-based) works on Free tier without a P1/P2 upgrade — confirmed compatible.
 

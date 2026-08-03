@@ -31,4 +31,18 @@ public class DrivePathTests
     {
         Assert.That(() => DrivePath.Validate("Shared Documents/notes/2026-07.md"), Throws.Nothing);
     }
+
+    [Test]
+    public void LooksLikeItemId_is_true_for_the_observed_live_OneDrive_id_shape()
+    {
+        // 34 chars, alphanumeric, no '/' - the live OneDrive item id observed in
+        // Phase 0 (docs/active/PRD-drive-write.md §11).
+        Assert.That(DrivePath.LooksLikeItemId("0176NADPLJLSYNNMETHFBJ7IQMXSGTZ4MA"), Is.True);
+    }
+
+    [Test]
+    public void LooksLikeItemId_is_false_for_a_root_level_filename()
+    {
+        Assert.That(DrivePath.LooksLikeItemId("notes.md"), Is.False);
+    }
 }

@@ -321,3 +321,26 @@ public sealed class DriveItemConcurrencyException(string path, string attemptedT
     public string Path { get; } = path;
     public string AttemptedTag { get; } = attemptedTag;
 }
+
+/// <summary>
+/// Surfaced by create_file/create_folder when the target's parent path does not exist -
+/// per PRD §4.4, parents are not auto-created, so a typo'd path fails loudly rather than
+/// silently materializing a folder tree.
+/// </summary>
+public sealed class DriveParentNotFoundException(string parentPath)
+    : Exception($"Parent path '{parentPath}' does not exist. Parents are not auto-created - call create_folder first.")
+{
+    public string ParentPath { get; } = parentPath;
+}
+
+/// <summary>
+/// Surfaced when create_file's content exceeds the configured MaxContentBytes cap (PRD §7,
+/// §9 item 5) - enforced before the Graph call, not left to Graph's own 4 MB simple-upload
+/// ceiling.
+/// </summary>
+public sealed class DriveContentTooLargeException(long actualBytes, long maxBytes)
+    : Exception($"Content is {actualBytes} bytes, exceeding the {maxBytes}-byte limit.")
+{
+    public long ActualBytes { get; } = actualBytes;
+    public long MaxBytes { get; } = maxBytes;
+}

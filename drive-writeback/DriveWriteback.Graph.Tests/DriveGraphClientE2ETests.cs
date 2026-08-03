@@ -58,4 +58,73 @@ public class DriveGraphClientE2ETests
             await _client!.DeleteItemAsync(spikeRoot);
         }
     }
+
+    /// <summary>
+    /// PRD §11/§12 Q5 Phase 0: "Confirm eTag vs cTag semantics for If-Match on /content
+    /// - these differ, and picking wrong yields either false 412s or no protection at all."
+    /// Uses two independent fresh files (one per tag) so a successful PUT against one
+    /// doesn't invalidate the still-untested tag on the other. Also confirms a
+    /// deliberately wrong tag reliably 412s, since a false-positive success there would
+    /// mean update_file_content's mandatory if_match isn't actually protecting anything.
+    /// </summary>
+    [Test]
+    public async Task ReplaceTextContentAsync_reports_which_tag_If_Match_honors()
+    {
+        var wrongTagRejected = await TryReplaceFreshItemAsync(tagSelector: null);
+        var eTagHonored = await TryReplaceFreshItemAsync(tagSelector: item => item.ETag);
+        var cTagHonored = await TryReplaceFreshItemAsync(tagSelector: item => item.CTag);
+
+        TestContext.Out.WriteLine(
+            $"PRD §12 Q5 finding: eTag If-Match {(eTagHonored ? "SUCCEEDED" : "412'd")}; "
+            + $"cTag If-Match {(cTagHonored ? "SUCCEEDED" : "412'd")}.");
+
+        Assert.That(wrongTagRejected, Is.False, "A deliberately wrong If-Match value must 412, not succeed.");
+        Assert.That(
+            eTagHonored || cTagHonored,
+            Is.True,
+            "At least one of eTag/cTag must be honored by If-Match on /content, or update_file_content's concurrency story needs rethinking.");
+    }
+
+    /// <summary>
+    /// Creates a fresh file, attempts a content replacement using either a real tag
+    /// (via tagSelector) or a deliberately wrong one (tagSelector: null), and reports
+    /// whether the PUT succeeded. Always cleans up the file it created.
+    /// </summary>
+    private async Task<bool> TryReplaceFreshItemAsync(Func<Microsoft.Graph.Models.DriveItem, string?>? tagSelector)
+    {
+        var path = $"phase0-spike-tag-{Guid.NewGuid():N}.txt";
+
+        try
+        {
+            await _client!.UploadTextContentAsync(path, "v1");
+
+            string tag;
+
+            if (tagSelector is null)
+            {
+                tag = "\"this-is-not-a-real-tag\"";
+            }
+            else
+            {
+                var initial = await _client.GetItemByPathAsync(path);
+                var selected = tagSelector(initial!);
+                Assert.That(selected, Is.Not.Null.And.Not.Empty);
+                tag = selected!;
+            }
+
+            try
+            {
+                await _client.ReplaceTextContentAsync(path, "v2", tag);
+                return true;
+            }
+            catch (DriveItemConcurrencyException)
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            await _client!.DeleteItemAsync(path);
+        }
+    }
 }

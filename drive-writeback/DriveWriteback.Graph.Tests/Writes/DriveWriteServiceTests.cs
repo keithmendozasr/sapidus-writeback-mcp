@@ -47,4 +47,29 @@ public class DriveWriteServiceTests
             Assert.That(result.CreatedSegments, Is.Empty);
         });
     }
+
+    [Test]
+    public async Task CreateFileAsync_dry_run_reports_target_already_exists_without_writing()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.CreateFileAsync("notes.md", "content", conflictBehavior: "rename", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.True);
+            Assert.That(result.TargetAlreadyExisted, Is.True);
+            Assert.That(result.Item, Is.Null);
+        });
+    }
 }

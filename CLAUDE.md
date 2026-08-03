@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Servers
 
 - **outlook-writeback** — all phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. See `outlook-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
+- **drive-writeback** — Phase 0 (validation spikes) in progress. See `drive-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
 
 ## What this repo is
 

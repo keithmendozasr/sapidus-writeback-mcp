@@ -108,4 +108,39 @@ public class DriveWriteServiceTests
             () => service.CreateFileAsync("notes.md", "this content is definitely over five bytes", driveId: "drive-id"),
             Throws.InstanceOf<DriveContentTooLargeException>());
     }
+
+    [Test]
+    public async Task CreateFolderAsync_real_mode_creates_the_missing_segment_and_returns_it()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                // No existing child - ResolveFolderPathAsync's own resolve step and
+                // CreateFolderPathAsync's existing-child lookup both see nothing here.
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"value":[]}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Post));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"new-folder-id","eTag":"\"etag-value\""}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.CreateFolderAsync("new-folder", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.AlreadyExisted, Is.False);
+            Assert.That(result.Item?.Id, Is.EqualTo("new-folder-id"));
+        });
+    }
 }

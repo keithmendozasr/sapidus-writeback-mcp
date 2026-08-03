@@ -69,4 +69,20 @@ public class GraphTokenEndpointClientTests
 
         Assert.That(capturedForm, Does.Contain("scope=Files.ReadWrite.All+offline_access"));
     }
+
+    [Test]
+    public void RedeemRefreshTokenAsync_throws_when_the_token_endpoint_returns_an_error_status()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(
+                """{"error":"invalid_grant","error_description":"Refresh token has expired."}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        Assert.That(
+            () => CreateClient(handler).RedeemRefreshTokenAsync("expired-refresh-token", ["Files.ReadWrite.All"]),
+            Throws.InstanceOf<HttpRequestException>());
+    }
 }

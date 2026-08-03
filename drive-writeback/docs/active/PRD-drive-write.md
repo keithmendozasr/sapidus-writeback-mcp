@@ -65,7 +65,7 @@ Seven tools. This server does not browse — it assumes the target drive/site/it
 
 ### 4.3 Rationale for the read tool
 
-Every write tool still needs a resolved target — `drive_id` + `item_id` or a path Graph can consume. This server does not resolve human-readable descriptions ("the Budget folder on the Finance site") into that target; the caller is expected to supply it already resolved. **This assumption is unverified — see Phase 0 spike in §11: confirm the official M365 connector's read output actually surfaces `driveId`/`siteId`/`itemId` in a form passable to this server. If it only returns human-facing content and links with Graph IDs stripped out, a narrow `resolve_path` tool (name/path in, IDs out, no enumeration) will be needed to bridge the gap.**
+Every write tool still needs a resolved target — `drive_id` + `item_id` or a path Graph can consume. This server does not resolve human-readable descriptions ("the Budget folder on the Finance site") into that target; the caller is expected to supply it already resolved. **This assumption is partially verified — see Phase 0 spike in §11: a live test against a OneDrive-for-Business file confirmed the connector's read output does surface `driveId`/`itemId`, though it could not resolve a folder's `itemId` directly — path-based addressing (`/drives/{drive-id}/root:/{path}:`) is the fallback for folders. Still unconfirmed for SharePoint team-site libraries, where `siteId`'s composite format is actually exercised; not blocking OneDrive-only work.**
 
 `get_item` serves two safety roles once a target is already identified: it is the eTag source for `update_file_content`, and it is the verification primitive before `delete_item` fires, including surfacing checkout state (§8, §12 Q4) before a write is attempted. It is a narrow metadata read, not a browsing tool — file content retrieval and folder enumeration both stay out of scope (§3).
 
@@ -260,7 +260,7 @@ Unchanged from `outlook-writeback`:
 - MSAL for .NET
 - Application Insights
 
-**Native AOT — decided against (corrected from rev 2, which assumed it "unchanged from `outlook-writeback`").** That assumption didn't match reality: `outlook-writeback`'s `.csproj` never actually enables `PublishAot` — verified directly, no `PublishAot`/`RuntimeIdentifier`/`InvariantGlobalization` settings anywhere in that project tree. Combined with the SDK decision below, there's nothing left in tension: full `Microsoft.Graph` SDK, no AOT, matching the only working precedent this repo has. The Phase 0 "confirm Native AOT publish path" spike (§11) is removed as moot — there's no publish path to confirm once AOT isn't attempted.
+**Native AOT — decided against.** `outlook-writeback`'s `.csproj` doesn't enable `PublishAot` either — no `PublishAot`/`RuntimeIdentifier`/`InvariantGlobalization` settings anywhere in that project tree — so there's no tension with taking the full `Microsoft.Graph` SDK here, matching the only working precedent this repo has. The Phase 0 "confirm Native AOT publish path" spike (§11) is removed as moot — there's no publish path to confirm once AOT isn't attempted.
 
 ### Dependency notes (session-start check)
 

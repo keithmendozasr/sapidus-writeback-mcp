@@ -220,6 +220,23 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     }
 
     /// <summary>
+    /// The path-vs-ID discriminator wrapper get_item needs (PRD §5): decides which of
+    /// GetItemByIdAsync/GetItemByPathAsync to call using DrivePath.LooksLikeItemId, and
+    /// reports which interpretation it used so a misclassification is visible to the
+    /// caller rather than silent (see DrivePath.LooksLikeItemId's doc comment).
+    /// </summary>
+    public async Task<ItemResolution> GetItemAsync(
+        string pathOrId,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (DrivePath.LooksLikeItemId(pathOrId))
+            return new ItemResolution(await GetItemByIdAsync(pathOrId, driveId, cancellationToken), ResolvedAsId: true);
+
+        return new ItemResolution(await GetItemByPathAsync(pathOrId, driveId, cancellationToken), ResolvedAsId: false);
+    }
+
+    /// <summary>
     /// Uploads small text content (Graph's simple-upload path, at or below 4 MB) to the
     /// given drive-relative path. Fails outright if something already exists there -
     /// this spike doesn't exercise conflictBehavior on upload, only on folder creation.
@@ -467,6 +484,13 @@ public sealed class DriveItemAlreadyExistsException(string itemName, ODataError?
 /// onward, in order.
 /// </summary>
 public sealed record FolderPathResolution(DriveItem? DeepestExisting, IReadOnlyList<string> MissingSegments);
+
+/// <summary>
+/// Result of DriveGraphClient.GetItemAsync's path-vs-ID discriminator: Item is the
+/// resolved item (null if not found), ResolvedAsId records which interpretation of the
+/// input string was used.
+/// </summary>
+public sealed record ItemResolution(DriveItem? Item, bool ResolvedAsId);
 
 /// <summary>
 /// Surfaced when a content replacement's If-Match tag doesn't match Graph's current

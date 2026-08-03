@@ -29,6 +29,14 @@ namespace DriveWriteback.Graph;
 public sealed class DriveGraphClient(GraphServiceClient client)
 {
     /// <summary>
+    /// Test-only escape hatch for probing Graph SDK behavior this class doesn't wrap yet -
+    /// see the conflictBehavior-on-content-PUT probe in DriveGraphClientE2ETests, which
+    /// needs to build a request this class has no public method for. Internal, not public:
+    /// nothing outside the InternalsVisibleTo'd test project should reach through this.
+    /// </summary>
+    internal GraphServiceClient RawClient => client;
+
+    /// <summary>
     /// Requires the Entra app to be registered as a public client with
     /// "http://localhost" listed under Mobile and desktop redirect URIs - a
     /// confidential/web registration will fail the redirect-URI check at sign-in.

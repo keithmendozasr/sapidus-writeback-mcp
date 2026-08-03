@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Graph;
 using DriveWriteback.Graph.Writes;
 
 namespace DriveWriteback.Graph.Tests.Writes;
@@ -75,6 +76,48 @@ public class DriveWriteServiceE2ETests
             // Root-level path, so the item's own Name is the deletable path.
             if (renamedName is not null)
                 await _client.DeleteItemAsync(renamedName);
+        }
+    }
+
+    /// <summary>
+    /// Diagnostic, not a gate: does a content PUT to a path whose parent is missing
+    /// auto-vivify the parent, or 404? DriveGraphClient.CreateFileAsync's own
+    /// parent-existence guard makes this moot for the tool's own behavior (it never
+    /// reaches Graph in that case, per DriveParentNotFoundException) - this bypasses that
+    /// guard via RawClient to observe Graph's actual behavior directly, worth recording as
+    /// a fact regardless, same as the Phase 0 colon-path bug was (PRD §11).
+    /// </summary>
+    [Test]
+    public async Task ContentPut_to_a_missing_parent_is_an_open_question()
+    {
+        var raw = _client!.RawClient;
+        var driveId = (await raw.Me.Drive.GetAsync())!.Id!;
+        var missingParent = $"phase1-spike-missing-parent-{Guid.NewGuid():N}";
+        var path = $"{missingParent}/notes.txt";
+
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("v1"));
+
+        try
+        {
+            var created = await raw.Drives[driveId].Items["root"].ItemWithPath(path).Content.PutAsync(stream);
+            TestContext.Out.WriteLine($"Phase 1 §1 finding: content PUT to a missing parent auto-vivified it (item id {created?.Id}).");
+        }
+        catch (Microsoft.Graph.Models.ODataErrors.ODataError error) when (error.ResponseStatusCode == 404)
+        {
+            TestContext.Out.WriteLine("Phase 1 §1 finding: content PUT to a missing parent 404'd rather than auto-vivifying it.");
+        }
+        finally
+        {
+            // Clean up either way: if auto-vivify happened, this removes the whole
+            // tree; if it 404'd, this is a no-op against something never created.
+            try
+            {
+                await raw.Drives[driveId].Items["root"].ItemWithPath(missingParent).DeleteAsync();
+            }
+            catch (Microsoft.Graph.Models.ODataErrors.ODataError)
+            {
+                // Nothing to clean up - expected on the 404 branch.
+            }
         }
     }
 }

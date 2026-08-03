@@ -13,4 +13,22 @@ public class DrivePathTests
     {
         Assert.That(DrivePath.Normalize(path), Is.EqualTo(expected));
     }
+
+    [Test]
+    public void Validate_throws_on_a_disallowed_character_in_a_segment()
+    {
+        Assert.That(() => DrivePath.Validate("notes/bad:name.md"), Throws.ArgumentException);
+    }
+
+    [Test]
+    public void Validate_throws_on_a_dot_dot_segment()
+    {
+        Assert.That(() => DrivePath.Validate("a/../b"), Throws.ArgumentException);
+    }
+
+    [Test]
+    public void Validate_does_not_throw_on_a_clean_path()
+    {
+        Assert.That(() => DrivePath.Validate("Shared Documents/notes/2026-07.md"), Throws.Nothing);
+    }
 }

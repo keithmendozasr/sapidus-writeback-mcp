@@ -143,4 +143,30 @@ public class DriveWriteServiceTests
             Assert.That(result.Item?.Id, Is.EqualTo("new-folder-id"));
         });
     }
+
+    [Test]
+    public async Task CreateFileAsync_real_mode_creates_the_file_and_logs_an_audit_entry()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Put));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"new-file-id","eTag":"\"etag-value\""}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var logger = new RecordingLogger<DriveWriteService>();
+        var service = CreateService(handler, options, logger);
+
+        var result = await service.CreateFileAsync("notes.md", "content", conflictBehavior: "replace", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.Item?.Id, Is.EqualTo("new-file-id"));
+            Assert.That(logger.Messages, Has.Some.Contains("new-file-id"), "the audit log entry should include the created item's id.");
+        });
+    }
 }

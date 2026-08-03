@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DriveWriteback.Graph\DriveWriteback.Graph.csproj" />
+    <ProjectReference Include="..\DriveWriteback.csproj" />
   </ItemGroup>
 
 </Project>

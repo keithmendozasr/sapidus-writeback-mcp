@@ -4,7 +4,7 @@ Server-specific guidance for working in this folder. Cross-server rules live in 
 
 ## Status
 
-**Phase 1 ("Safe creates") implemented — pending deployment.** `get_item`, `create_folder`, and `create_file` are built end-to-end: `DriveGraphClient` (Graph layer), `DriveWriteService` (dry-run-aware service layer, dry-run **on** by default), and their `Functions/` tool classes, all wired into a real Functions host project (`Program.cs`, `host.json`) plus a `DriveWriteback.Bootstrap` console app for one-time refresh-token seeding. `dotnet test --filter "Category!=E2E"` is green (44 Unit/Integration tests, all offline, no live tenant needed).
+**Phase 1 ("Safe creates") implemented — pending deployment.** `get_item`, `create_folder`, and `create_file` are built end-to-end: `DriveGraphClient` (Graph layer), `DriveWriteService` (dry-run-aware service layer, dry-run **on** by default), and their `Functions/` tool classes, all wired into a real Functions host project (`Program.cs`, `host.json`) plus a `DriveWriteback.Bootstrap` console app for one-time refresh-token seeding. `dotnet test --filter "Category!=E2E"` is green (45 Unit/Integration tests, all offline, no live tenant needed).
 
 **Nothing has actually been deployed.** No resource group, Function App, or Key Vault exists yet — `DEPLOYMENT.md`'s Phase 1 sections are runbook text for a future session to execute, not something this pass ran. Per this repo's doc-maintenance convention, this Status section stays "pending deployment" (not "shipped") until that actually happens.
 
@@ -21,7 +21,7 @@ Phase 0's original three OneDrive spikes (mkdir-p, eTag/cTag `If-Match`, item-ID
 Run from the repo root (`sapidus-writeback-mcp.slnx`):
 
 - `dotnet build` — builds the whole solution: `DriveWriteback.Graph`, `DriveWriteback.Graph.Tests`, `DriveWriteback` (the Functions host), and `DriveWriteback.Bootstrap`.
-- `dotnet test --filter "Category!=E2E"` — 44 tests, Unit + Integration tiers, entirely offline, no credentials needed. This is the tier that runs in CI.
+- `dotnet test --filter "Category!=E2E"` — 45 tests, Unit + Integration tiers, entirely offline, no credentials needed. This is the tier that runs in CI.
 - `dotnet test --filter Category=E2E` — 7 tests, real Microsoft Graph, real OneDrive. Self-skips via `Assert.Ignore` unless the environment variables below are set; requires the real "Drive Writeback MCP" Entra app registration and admin consent (see `DEPLOYMENT.md` — the sole source of truth for provisioning this, no separate script). Cannot run in CI:
   - `DRIVE_WRITEBACK_TENANT_ID` / `DRIVE_WRITEBACK_CLIENT_ID` — the Entra app's IDs.
   - **Only 3 of the 7 have ever actually been run against a live tenant** (the original Phase 0 spikes). The other 4, all added this pass, are unrun — see the Status section above.

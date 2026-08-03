@@ -6,11 +6,11 @@ Checklist of `az` commands to provision this server, kept as a runbook rather th
 
 **Phase 0 scope only, for now.** This server currently has no Functions host project, no resource group, no Function App, no Key Vault — only the Graph client library and its validation-spike tests (see `docs/active/PRD-drive-write.md` §11). The one thing Phase 0 actually needs from Azure is the boundary-7a Entra app registration below, so that's the only section here. Resource group / Function App / Key Vault / Bootstrap / boundary-7b Connector app sections get appended once Phase 1 actually needs them — mirror the corresponding sections of `outlook-writeback/DEPLOYMENT.md` when that time comes, adjusting scopes and naming for this server.
 
-There's also a script that does the same steps below without hand-typing them: `scripts/Register-EntraApp.ps1`. Read this section first anyway — the point of writing it out is to understand *why* each step exists, not just to have something to paste. *(Open item: once this doc has been through a couple of real runs, decide whether `scripts/` stays as an ongoing directory or whether the raw commands here turn out to be enough on their own.)*
+**This doc is the single source of truth for provisioning/rebuilding this server** — same posture as `outlook-writeback/DEPLOYMENT.md`, no separate wrapper script. (An earlier revision of this doc pointed at `scripts/Register-EntraApp.ps1` for repeatable execution; that script had a real bug — see the admin-consent note in step 5 below — and rather than fix a second copy of this logic to maintain in lockstep with the doc, it's been removed. Hand-typing six `az` commands on the rare occasion this needs re-running is cheaper than keeping a script in sync.)
 
 ## Prerequisites
 
-- `az login` as an account with access to the target Azure subscription and tenant. This is a **delegated, interactive** session — nothing in this doc or the script stores a credential for itself.
+- `az login` as an account with access to the target Azure subscription and tenant. This is a **delegated, interactive** session — nothing in this doc stores a credential for itself.
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) with the `az ad` command group (no separate extension needed for app registration).
 
 ## Register the boundary-7a Entra app ("Drive Writeback MCP")
@@ -48,6 +48,8 @@ There's also a script that does the same steps below without hand-typing them: `
    az rest --method GET --url "https://graph.microsoft.com/v1.0/servicePrincipals/<sp-object-id>/oauth2PermissionGrants"
    ```
    Expect one grant with `"consentType": "AllPrincipals"` and `"scope"` containing both `Files.ReadWrite.All` and `Sites.Read.All` (plus `User.Read` if step 4's note above wasn't followed).
+
+   **Known issue, observed live on `homepluspower.info`:** the GET immediately after `admin-consent` can come back empty even though the caller *is* a Global Administrator and the grant genuinely succeeded — this is eventual-consistency lag between `admin-consent` writing the grant and it becoming visible to a `GET`, not a permissions problem. If the GET comes back empty right after granting, wait ~10-30 seconds and re-run the GET before concluding the caller isn't privileged enough. This was the root cause the one time an earlier `Register-EntraApp.ps1` wrapper script threw "Admin consent did not take" here — the grant was already correct, the script's check just ran with no retry.
 6. Register the public-client redirect URI. Phase 0 only needs one — `http://localhost`, for the `Category=E2E` test tier's `InteractiveBrowserCredential` — unlike `outlook-writeback`, there's no second fixed-port redirect URI yet because there's no `DriveWriteback.Bootstrap` console tool in Phase 0 (that's Phase 1, once a deployed non-interactive service needs a seeded refresh token):
    ```
    az ad app update --id <client-id> --public-client-redirect-uris "http://localhost"

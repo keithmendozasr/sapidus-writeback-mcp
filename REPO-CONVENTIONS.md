@@ -65,6 +65,8 @@ For every server folder, all of the following are separate and never shared acro
 | Function App | `<server>-func` | `onedrive-writeback-func` |
 | Key Vault secrets | own entries per server, never reused across servers | Outlook's Graph client secret is a separate Key Vault secret from any future server's |
 
+**One Function App per MCP server, matching the one-Entra-app-per-server invariant above.** Easy Auth (App Service Authentication v2) is configured at the Function App level, not per-route — there is no way to point different paths within one Function App at different identity providers. Sharing a Function App across two servers would force them to share one boundary-7b Connector app too, which breaks the invariant this section exists to protect. Each server gets its own subdomain (`<server>.<your-domain>`) and its own Flex Consumption plan, never a shared one.
+
 **Why this is the rule and not a starting point to relax later:** the whole reason these servers exist as separate write-only tools instead of one broad-access app is to keep blast radius small — a leaked credential or a buggy handler in one server should never expose Graph scopes belonging to another. Adding a new capability by granting an *existing* app more scopes would quietly undo that property. New capability = new folder = new Entra app = new resource group = new Function App, every time.
 
 Naming stays traceable end-to-end: folder name → resource group → Function App → Entra display name, all built from the same `<server>` string, so an incident in the Azure Portal can be traced back to exactly which Entra app's scopes are exposed without cross-referencing a spreadsheet.
@@ -117,6 +119,7 @@ This keeps the family visible as one rollup in Azure Cost Management even though
 6. Create new Key Vault secrets for this server's Graph credentials — do not reuse another server's Key Vault entries.
 7. Tag all new resources `project: sapidus-writeback-mcp`.
 8. Only pull code into `shared/` if it's genuinely capability-agnostic transport/auth code per §4 — default to keeping new logic in the server's own folder.
+9. Once the server has a boundary-7b Connector app (multi-client OAuth via Easy Auth + Entra ID — see that server's own `DEPLOYMENT.md`), set **"Assignment required" = Yes** on its Enterprise Application object and assign only the intended user(s). Entra allows any tenant user to sign in to an app registration by default once it exists; since Graph calls run under a single seeded server-app refresh token rather than per-caller delegation, an unrestricted Connector app would let any tenant user drive the server with the owner's own Graph access. Confirmed working on Entra ID Free (individual user assignment, not group-based, needs no P1/P2 upgrade).
 
 ## 9. MCP protocol and architecture decisions must be agent-agnostic
 

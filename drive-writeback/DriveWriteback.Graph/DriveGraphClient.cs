@@ -85,6 +85,44 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     }
 
     /// <summary>
+    /// mkdir -p: walks path segments from the drive root, creating each missing one.
+    /// Idempotent - an existing full path returns success rather than an error, per
+    /// PRD §4.4's baseline approach (iterative per-segment create, treating 409 as
+    /// "already exists, continue"). This is the Phase 0 spike artifact for that section.
+    /// </summary>
+    public async Task<DriveItem?> CreateFolderPathAsync(
+        string fullPath,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var segments = fullPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length == 0)
+            throw new ArgumentException("fullPath must contain at least one segment.", nameof(fullPath));
+
+        string? parentPath = null;
+        DriveItem? current = null;
+
+        foreach (var segment in segments)
+        {
+            var currentPath = string.IsNullOrEmpty(parentPath) ? segment : $"{parentPath}/{segment}";
+
+            try
+            {
+                current = await CreateFolderSegmentAsync(parentPath, segment, driveId, cancellationToken);
+            }
+            catch (DriveItemAlreadyExistsException)
+            {
+                current = await GetItemByPathAsync(currentPath, driveId, cancellationToken);
+            }
+
+            parentPath = currentPath;
+        }
+
+        return current;
+    }
+
+    /// <summary>
     /// Uploads small text content (Graph's simple-upload path, at or below 4 MB) to the
     /// given drive-relative path. Fails outright if something already exists there -
     /// this spike doesn't exercise conflictBehavior on upload, only on folder creation.

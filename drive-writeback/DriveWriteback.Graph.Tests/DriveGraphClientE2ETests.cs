@@ -30,4 +30,32 @@ public class DriveGraphClientE2ETests
             clientId!,
             ["Files.ReadWrite.All", "Sites.Read.All"]);
     }
+
+    /// <summary>
+    /// PRD §11 Phase 0: "Confirm mkdir -p approach... against a OneDrive... library."
+    /// Creating the same nested path twice must succeed both times - the second run
+    /// exercises the 409-as-already-exists path CreateFolderPathAsync depends on.
+    /// </summary>
+    [Test]
+    public async Task CreateFolderPathAsync_is_idempotent_mkdir_p()
+    {
+        var spikeRoot = $"phase0-spike-mkdirp-{Guid.NewGuid():N}";
+        var nestedPath = $"{spikeRoot}/a/b/c";
+
+        try
+        {
+            var firstCreate = await _client!.CreateFolderPathAsync(nestedPath);
+            Assert.That(firstCreate, Is.Not.Null);
+
+            var secondCreate = await _client.CreateFolderPathAsync(nestedPath);
+            Assert.That(secondCreate, Is.Not.Null, "Re-creating an existing path should succeed, not throw.");
+
+            var resolved = await _client.GetItemByPathAsync(nestedPath);
+            Assert.That(resolved?.Folder, Is.Not.Null, "Expected the deepest segment to be a folder.");
+        }
+        finally
+        {
+            await _client!.DeleteItemAsync(spikeRoot);
+        }
+    }
 }

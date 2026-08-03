@@ -136,4 +136,43 @@ public class DriveGraphClientIntegrationTests
             () => CreateClient(handler).CreateFileAsync("sub/notes.md", "content", conflictBehavior: "replace", driveId: "drive-id"),
             Throws.InstanceOf<DriveParentNotFoundException>());
     }
+
+    [Test]
+    public async Task CreateFileAsync_rename_appends_a_numeric_suffix_on_collision()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                // The original path (no "(1)" suffix) is reported as existing; the
+                // suffixed candidate is reported as free.
+                var isSuffixedCandidate = request.RequestUri!.ToString().Contains("(1)");
+
+                return Task.FromResult(new HttpResponseMessage(isSuffixedCandidate ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        isSuffixedCandidate
+                            ? """{"error":{"code":"itemNotFound","message":"Item not found"}}"""
+                            : """{"id":"existing-id"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Put));
+                Assert.That(request.RequestUri!.ToString(), Does.Contain("(1)"), "the PUT should target the suffixed, non-colliding path.");
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"renamed-id"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var result = await CreateClient(handler).CreateFileAsync("notes.md", "content", conflictBehavior: "rename", driveId: "drive-id");
+
+        Assert.That(result?.Id, Is.EqualTo("renamed-id"));
+    }
 }

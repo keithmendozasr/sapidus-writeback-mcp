@@ -45,4 +45,28 @@ public class DrivePathTests
     {
         Assert.That(DrivePath.LooksLikeItemId("notes.md"), Is.False);
     }
+
+    [Test]
+    public void SplitParent_splits_a_nested_path()
+    {
+        var (parentPath, name) = DrivePath.SplitParent("a/b/c.md");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parentPath, Is.EqualTo("a/b"));
+            Assert.That(name, Is.EqualTo("c.md"));
+        });
+    }
+
+    [Test]
+    public void SplitParent_returns_an_empty_parent_for_a_root_level_path()
+    {
+        var (parentPath, name) = DrivePath.SplitParent("c.md");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parentPath, Is.EqualTo(""));
+            Assert.That(name, Is.EqualTo("c.md"));
+        });
+    }
 }

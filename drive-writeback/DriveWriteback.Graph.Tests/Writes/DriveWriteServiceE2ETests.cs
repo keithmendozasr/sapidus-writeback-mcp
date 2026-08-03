@@ -120,4 +120,37 @@ public class DriveWriteServiceE2ETests
             }
         }
     }
+
+    /// <summary>
+    /// PRD §9 item 8: dry-run mode must validate and resolve but never mutate. Runs both
+    /// create_folder and create_file through a dry-run DriveWriteService against the live
+    /// tenant, then confirms via TryGetItemByPathAsync (a plain read, bypassing the
+    /// path-vs-id discriminator since these are known paths, not ids) that neither actually
+    /// got created.
+    /// </summary>
+    [Test]
+    public async Task DryRun_makes_zero_mutations_against_the_live_tenant()
+    {
+        var dryRunService = CreateService(dryRun: true);
+        var folderPath = $"phase1-spike-dryrun-folder-{Guid.NewGuid():N}";
+        var filePath = $"phase1-spike-dryrun-file-{Guid.NewGuid():N}.txt";
+
+        var folderResult = await dryRunService.CreateFolderAsync(folderPath);
+        var fileResult = await dryRunService.CreateFileAsync(filePath, "content");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(folderResult.DryRun, Is.True);
+            Assert.That(fileResult.DryRun, Is.True);
+        });
+
+        var folderCheck = await _client!.TryGetItemByPathAsync(folderPath);
+        var fileCheck = await _client.TryGetItemByPathAsync(filePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(folderCheck, Is.Null, "dry-run create_folder must not actually create anything.");
+            Assert.That(fileCheck, Is.Null, "dry-run create_file must not actually create anything.");
+        });
+    }
 }

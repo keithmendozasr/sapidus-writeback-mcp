@@ -72,4 +72,27 @@ public class DriveWriteServiceTests
             Assert.That(result.Item, Is.Null);
         });
     }
+
+    [Test]
+    public void CreateFileAsync_dry_run_throws_DriveParentNotFoundException_when_the_parent_is_missing()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        Assert.That(
+            () => service.CreateFileAsync("sub/notes.md", "content", conflictBehavior: "replace", driveId: "drive-id"),
+            Throws.InstanceOf<DriveParentNotFoundException>());
+    }
 }

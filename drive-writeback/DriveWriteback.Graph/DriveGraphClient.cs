@@ -103,8 +103,10 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? parentPath = null;
         DriveItem? current = null;
 
-        foreach (var segment in segments)
+        for (var i = 0; i < segments.Length; i++)
         {
+            var segment = segments[i];
+            var isLastSegment = i == segments.Length - 1;
             var currentPath = string.IsNullOrEmpty(parentPath) ? segment : $"{parentPath}/{segment}";
 
             try
@@ -113,13 +115,46 @@ public sealed class DriveGraphClient(GraphServiceClient client)
             }
             catch (DriveItemAlreadyExistsException)
             {
-                current = await GetItemByPathAsync(currentPath, driveId, cancellationToken);
+                // Intermediate segments only need to exist for the next create to target
+                // them - no need to resolve their DriveItem representation, and every
+                // avoided GET here is one less roll of the propagation-lag dice below.
+                // Only the final segment's return value is something a caller ever uses.
+                current = isLastSegment
+                    ? await GetItemByPathWithRetryAsync(currentPath, driveId, cancellationToken)
+                    : null;
             }
 
             parentPath = currentPath;
         }
 
         return current;
+    }
+
+    /// <summary>
+    /// Observed live against homepluspower.info OneDrive (Phase 0 spike finding, see
+    /// docs/active/PRD-drive-write.md §11): a path-based GET immediately following a
+    /// 409-already-exists response for that same path can itself 404. The 409 already
+    /// proves the item exists, so this is propagation lag in OneDrive's path-resolution
+    /// index, not a real "doesn't exist" - a short bounded retry absorbs it.
+    /// </summary>
+    private async Task<DriveItem?> GetItemByPathWithRetryAsync(
+        string path,
+        string? driveId,
+        CancellationToken cancellationToken,
+        int maxAttempts = 4,
+        int delayMilliseconds = 750)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await GetItemByPathAsync(path, driveId, cancellationToken);
+            }
+            catch (ODataError error) when (error.ResponseStatusCode == 404 && attempt < maxAttempts)
+            {
+                await Task.Delay(delayMilliseconds, cancellationToken);
+            }
+        }
     }
 
     /// <summary>

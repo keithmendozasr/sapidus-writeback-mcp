@@ -39,4 +39,32 @@ public class DriveGraphClientIntegrationTests
 
         Assert.That(result, Is.Null);
     }
+
+    [Test]
+    public async Task ResolveFolderPathAsync_stops_at_the_first_missing_segment()
+    {
+        // "a" resolves to an existing folder; any other segment name ("b") is reported
+        // as not found, so the walk should stop there and report "b" and "c" as missing.
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var respondsWithA = request.RequestUri!.ToString().Contains("%27a%27");
+
+            var body = respondsWithA
+                ? """{"value":[{"id":"a-id","name":"a","folder":{}}]}"""
+                : """{"value":[]}""";
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var resolution = await CreateClient(handler).ResolveFolderPathAsync("a/b/c", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolution.DeepestExisting?.Id, Is.EqualTo("a-id"));
+            Assert.That(resolution.MissingSegments, Is.EqualTo(new[] { "b", "c" }));
+        });
+    }
 }

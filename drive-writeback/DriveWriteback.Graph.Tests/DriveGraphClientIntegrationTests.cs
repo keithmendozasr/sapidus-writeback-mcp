@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using DriveWriteback.Graph.Tests.TestSupport;
@@ -20,5 +22,21 @@ public class DriveGraphClientIntegrationTests
         var graphClient = new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider());
 
         return new DriveGraphClient(graphClient);
+    }
+
+    [Test]
+    public async Task TryGetItemByPathAsync_returns_null_on_a_stubbed_404()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent(
+                """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        var result = await CreateClient(handler).TryGetItemByPathAsync("does-not-exist.md", driveId: "drive-id");
+
+        Assert.That(result, Is.Null);
     }
 }

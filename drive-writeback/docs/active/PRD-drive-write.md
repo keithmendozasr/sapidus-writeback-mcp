@@ -3,8 +3,7 @@
 **Status:** Draft (rev 3 — Phase 0 in progress)
 **Repo:** `graph-writeback-mcp`
 **Server:** `drive-writeback` (second server in the monorepo, after `outlook-writeback`)
-**Owner:** Keith
-**Tenant:** `homepluspower.info` — single-tenant, Entra managed domain (cloud authentication, no federation)
+**Owner:** Keith Mendoza
 **Last updated:** 2026-08-03
 
 ---
@@ -181,7 +180,7 @@ Document library files are `driveItem`s, and `Files.ReadWrite.All` is sufficient
 
 ### Consent and the open-source release
 
-Both `.All` scopes require **tenant admin consent**. As global admin of `homepluspower.info` this is self-service and a non-issue. It is a real issue for the planned OSS release: a user who is not a tenant admin cannot consent, and the server will fail at startup rather than degrade.
+Both `.All` scopes require **tenant admin consent**. It is a real issue for the planned OSS release: a user who is not a tenant admin cannot consent, and the server will fail at startup rather than degrade.
 
 **v1 requirement (cheap): detect and log, never fail blind.** At startup, after redeeming the seeded refresh token, inspect the granted-scopes claim and log a clear, specific entry (Application Insights, same pipeline as the §9 audit log) naming exactly which required scope is missing — e.g. "Sites.Read.All not granted; SharePoint tools will fail." This does not change runtime behavior: a SharePoint call still fails with Graph's own 403 if the scope is missing. The point is only that the *reason* is always discoverable in the log, never a mystery.
 
@@ -307,7 +306,7 @@ Check-out/check-in handling, required-column detection, draft-state warnings, ve
 3. ~~`mkdir -p` implementation~~ **Decided and confirmed for OneDrive (§11):** chain by item `id`, not by re-derived colon-path strings — colon-path addressing of a folder immediately after creating it is unreliable (Graph's path-resolution index can lag, and the failure mode is a silent landing at drive root, not a clean error). SharePoint still unverified.
 4. **Check-out handling:** **Decided: detect-and-fail.** `get_item` surfaces checkout state so the model can check before attempting a write; a failed write due to checkout returns a distinct, explicit error (not a generic Graph fault) stating the item is checked out, so the model can relay that to the user rather than attempting to move/update it.
 5. ~~eTag or cTag for `If-Match`, and does it differ on SharePoint?~~ **Resolved for OneDrive: both work (§11).** Either the item's `eTag` or its `cTag` is honored by `If-Match` on `/content` — `update_file_content` can accept either without a false 412. SharePoint semantics still unverified.
-6. ~~Same Function App or separate per server?~~ **Decided: separate Function App per server.** Easy Auth (App Service Authentication v2) is configured at the Function App level, not per-route — there's no way to point different paths within one Function App at different identity providers. Sharing a Function App would force `outlook-writeback` and `drive-writeback` to share one Connector app, which breaks the one-Entra-app-per-server invariant. No competing reason to share (each server already gets its own subdomain — `outlook-writeback.homepluspower.info`, `drive-writeback.homepluspower.info` — not a shared one). **`REPO-CONVENTIONS.md` should state explicitly:** "One Function App per MCP server, matching the one-Entra-app-per-server invariant. Each server gets its own subdomain and its own Flex Consumption plan."
+6. ~~Same Function App or separate per server?~~ **Decided: separate Function App per server.** Easy Auth (App Service Authentication v2) is configured at the Function App level, not per-route — there's no way to point different paths within one Function App at different identity providers. Sharing a Function App would force `outlook-writeback` and `drive-writeback` to share one Connector app, which breaks the one-Entra-app-per-server invariant. No competing reason to share (each server already gets its own subdomain — e.g. `outlook-writeback.<tenant-domain>`, `drive-writeback.<tenant-domain>` — not a shared one). **`REPO-CONVENTIONS.md` should state explicitly:** "One Function App per MCP server, matching the one-Entra-app-per-server invariant. Each server gets its own subdomain and its own Flex Consumption plan."
 7. ~~Should `list_children` and `list_sites` paginate?~~ **Moot.** Both tools are out of scope — this server does not browse (§3, §4). Discovery is the caller's responsibility.
 8. ~~Does the OSS graceful-degradation requirement (§6) belong in v1 or v2?~~ **Decided: split.** v1 gets a cheap startup scope-check that logs exactly which required scope is missing (§6) — no blind failures. Full graceful degradation (conditional tool registration, per-call friendly errors instead of raw Graph 403s) is deferred to v2, built only when an OSS release is imminent. **Related, not yet in the doc:** by default, Entra allows any tenant user to sign in to an app registration once it exists, unless sign-in is restricted. Since all Graph calls run under the single seeded Server-app refresh token (not per-caller delegation), an unrestricted Connector app would let any tenant user drive this server with the owner's own Graph access. **Action:** set "Assignment required" = Yes on the Connector app's Enterprise Application object and assign only the intended user. Applies to `outlook-writeback` too — should also be captured in `REPO-CONVENTIONS.md`.
 

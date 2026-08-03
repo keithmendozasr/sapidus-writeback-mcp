@@ -97,7 +97,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     /// "already exists, continue"). This is the Phase 0 spike artifact for that section.
     ///
     /// Chains by item id, not by re-deriving a colon-path string from segment names.
-    /// Live E2E testing against homepluspower.info found that colon-path addressing of a
+    /// Live E2E testing found that colon-path addressing of a
     /// folder immediately after creating it is not reliable: Graph's path-resolution index
     /// can lag behind the item actually existing, and the failure mode observed wasn't a
     /// clean 404 - a /children POST against an unresolved colon-path silently landed at the

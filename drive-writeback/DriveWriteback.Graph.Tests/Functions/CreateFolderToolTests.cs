@@ -104,4 +104,41 @@ public class CreateFolderToolTests
             Assert.That(result, Does.Contain("etag-value"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_real_mode_says_already_existed_instead_of_created_when_nothing_changed()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"value":[{"id":"existing-folder-id","name":"existing","folder":{},"eTag":"\"etag-value\""}]}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"nameAlreadyExists","message":"An item with that name already exists."}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var tool = CreateTool(handler, options);
+
+        var result = await tool.RunAsync(null!, "existing", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain("already existed"));
+            Assert.That(result, Does.Not.Contain("(created)"));
+            Assert.That(result, Does.Contain("existing-folder-id"));
+        });
+    }
 }

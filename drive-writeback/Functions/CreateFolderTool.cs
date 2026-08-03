@@ -23,7 +23,10 @@ public sealed class CreateFolderTool(DriveWriteService writeService)
         var result = await writeService.CreateFolderAsync(path, driveId);
 
         if (!result.DryRun)
-            return $"Folder \"{path}\" ready. ID: {result.Item?.Id}. ETag: {result.Item?.ETag}.";
+        {
+            var status = result.AlreadyExisted ? "already existed, no changes made" : "created";
+            return $"Folder \"{path}\" ready ({status}). ID: {result.Item?.Id}. ETag: {result.Item?.ETag}.";
+        }
 
         if (result.AlreadyExisted)
             return $"[DRY RUN] \"{path}\" already exists, no changes made.";

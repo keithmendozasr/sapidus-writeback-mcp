@@ -1,6 +1,7 @@
 using Azure.Identity;
 using Microsoft.Graph;
 using Microsoft.Graph.Drives.Item.Items.Item;
+using Microsoft.Graph.Drives.Item.Items.Item.Children;
 using Microsoft.Graph.Models;
 using Microsoft.Graph.Models.ODataErrors;
 
@@ -55,6 +56,11 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     /// Conflict behavior "fail" - callers implementing mkdir -p treat the resulting
     /// 409 (surfaced as a DriveItemAlreadyExistsException) as "already exists, continue."
     /// Pass null or "" for parentPath to create directly under the drive root.
+    ///
+    /// Safe when parentPath refers to a stable, already-existing folder. NOT safe to chain
+    /// against a parent this same call chain just created a moment ago - see
+    /// CreateFolderPathAsync's doc comment for why, and use that method instead for
+    /// mkdir-p-style nested creation.
     /// </summary>
     public async Task<DriveItem?> CreateFolderSegmentAsync(
         string? parentPath,
@@ -89,6 +95,17 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     /// Idempotent - an existing full path returns success rather than an error, per
     /// PRD §4.4's baseline approach (iterative per-segment create, treating 409 as
     /// "already exists, continue"). This is the Phase 0 spike artifact for that section.
+    ///
+    /// Chains by item id, not by re-deriving a colon-path string from segment names.
+    /// Live E2E testing against homepluspower.info found that colon-path addressing of a
+    /// folder immediately after creating it is not reliable: Graph's path-resolution index
+    /// can lag behind the item actually existing, and the failure mode observed wasn't a
+    /// clean 404 - a /children POST against an unresolved colon-path silently landed at the
+    /// drive root instead of erroring, producing folders that looked created but weren't
+    /// nested where intended (confirmed both via a direct OneDrive-web check and by logging
+    /// each created item's own ParentReference.Path). Addressing by the id Graph just
+    /// returned needs no path resolution at all and sidesteps this entirely.
+    /// See docs/active/PRD-drive-write.md §11/§12 Q3.
     /// </summary>
     public async Task<DriveItem?> CreateFolderPathAsync(
         string fullPath,
@@ -100,63 +117,98 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         if (segments.Length == 0)
             throw new ArgumentException("fullPath must contain at least one segment.", nameof(fullPath));
 
-        string? parentPath = null;
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        string? parentId = null;
         DriveItem? current = null;
 
-        for (var i = 0; i < segments.Length; i++)
+        foreach (var segment in segments)
         {
-            var segment = segments[i];
-            var isLastSegment = i == segments.Length - 1;
-            var currentPath = string.IsNullOrEmpty(parentPath) ? segment : $"{parentPath}/{segment}";
-
             try
             {
-                current = await CreateFolderSegmentAsync(parentPath, segment, driveId, cancellationToken);
+                current = await CreateChildByParentIdAsync(resolvedDriveId, parentId, segment, cancellationToken);
             }
             catch (DriveItemAlreadyExistsException)
             {
-                // Intermediate segments only need to exist for the next create to target
-                // them - no need to resolve their DriveItem representation. Only the final
-                // segment's return value is something a caller ever uses.
-                current = isLastSegment
-                    ? await ResolveExistingChildAsync(parentPath, segment, driveId, cancellationToken)
-                    : null;
+                current = await ResolveExistingChildByParentIdAsync(resolvedDriveId, parentId, segment, cancellationToken);
             }
 
-            parentPath = currentPath;
+            parentId = current?.Id
+                ?? throw new InvalidOperationException($"Could not resolve an id for segment '{segment}' after create or already-exists lookup.");
         }
 
         return current;
     }
 
     /// <summary>
-    /// Resolves an already-existing child by listing its parent's children and filtering
-    /// by name, rather than a direct colon-path GET on the child itself.
-    ///
-    /// Live E2E testing against homepluspower.info surfaced that a colon-path GET
-    /// (Items["root"].ItemWithPath(fullChildPath).GetAsync()) can 404 immediately after
-    /// the very 409 that proves the item exists - reproducibly, not just occasionally, and
-    /// a several-second bounded retry against that same call didn't clear it either. The
-    /// parent-listing path used here goes through Children, the exact mechanism that just
-    /// finished successfully creating this tree in the first place (see
-    /// CreateFolderSegmentAsync), so it isn't exposed to whatever the colon-path GET's
-    /// issue is. See docs/active/PRD-drive-write.md §11 for the write-up.
+    /// Creates a child folder directly under a known parent item id (or the drive root when
+    /// parentId is null). Id-based, not path-based - see CreateFolderPathAsync's doc comment.
     /// </summary>
-    private async Task<DriveItem?> ResolveExistingChildAsync(
-        string? parentPath,
-        string childName,
-        string? driveId,
+    private async Task<DriveItem?> CreateChildByParentIdAsync(
+        string driveId,
+        string? parentId,
+        string folderName,
         CancellationToken cancellationToken)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
-        var parent = ResolveRootItem(resolvedDriveId, parentPath);
+        var newFolder = new DriveItem
+        {
+            Name = folderName,
+            Folder = new Folder(),
+            AdditionalData = new Dictionary<string, object>
+            {
+                ["@microsoft.graph.conflictBehavior"] = "fail",
+            },
+        };
+        var children = ResolveChildrenByParentId(driveId, parentId);
+
+        try
+        {
+            return await children.PostAsync(newFolder, cancellationToken: cancellationToken);
+        }
+        catch (ODataError error) when (error.ResponseStatusCode == 409)
+        {
+            throw new DriveItemAlreadyExistsException(folderName, error);
+        }
+    }
+
+    /// <summary>
+    /// Resolves an already-existing child by listing its parent's children (by id) and
+    /// filtering by name - id-based, same reasoning as CreateChildByParentIdAsync.
+    /// </summary>
+    private async Task<DriveItem?> ResolveExistingChildByParentIdAsync(
+        string driveId,
+        string? parentId,
+        string childName,
+        CancellationToken cancellationToken)
+    {
+        var children = ResolveChildrenByParentId(driveId, parentId);
         var escapedName = childName.Replace("'", "''");
 
-        var children = await parent.Children.GetAsync(
+        var result = await children.GetAsync(
             requestConfiguration => requestConfiguration.QueryParameters.Filter = $"name eq '{escapedName}'",
             cancellationToken: cancellationToken);
 
-        return children?.Value?.FirstOrDefault();
+        return result?.Value?.FirstOrDefault();
+    }
+
+    private ChildrenRequestBuilder ResolveChildrenByParentId(string driveId, string? parentId) =>
+        string.IsNullOrEmpty(parentId)
+            ? client.Drives[driveId].Items["root"].Children
+            : client.Drives[driveId].Items[parentId].Children;
+
+    /// <summary>
+    /// Fetches an item by its stable id rather than a path - use this instead of
+    /// GetItemByPathAsync to verify an item that was just created moments ago in the same
+    /// call chain (see CreateFolderPathAsync's doc comment for why path addressing of a
+    /// freshly-created item isn't reliable).
+    /// </summary>
+    public async Task<DriveItem?> GetItemByIdAsync(
+        string itemId,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+
+        return await client.Drives[resolvedDriveId].Items[itemId].GetAsync(cancellationToken: cancellationToken);
     }
 
     /// <summary>

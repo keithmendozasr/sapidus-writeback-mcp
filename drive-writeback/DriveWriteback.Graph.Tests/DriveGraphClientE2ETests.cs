@@ -50,8 +50,12 @@ public class DriveGraphClientE2ETests
             var secondCreate = await _client.CreateFolderPathAsync(nestedPath);
             Assert.That(secondCreate, Is.Not.Null, "Re-creating an existing path should succeed, not throw.");
 
-            var resolved = await _client.GetItemByPathAsync(nestedPath);
+            // Verify by id, not by re-resolving the nested path - CreateFolderPathAsync's doc
+            // comment explains why colon-path addressing of a just-created deep tree isn't
+            // reliable enough to trust even for this test's own verification step.
+            var resolved = await _client.GetItemByIdAsync(secondCreate!.Id!);
             Assert.That(resolved?.Folder, Is.Not.Null, "Expected the deepest segment to be a folder.");
+            Assert.That(resolved?.ParentReference?.Path, Does.EndWith("/a/b"), "Expected 'c' to be nested three levels deep under the spike root, not sitting elsewhere.");
         }
         finally
         {

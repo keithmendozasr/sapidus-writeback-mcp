@@ -49,4 +49,30 @@ public class CreateFileToolTests
             Assert.That(result, Does.Contain("Not written"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_dry_run_reports_target_already_exists_with_the_conflict_behavior()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var tool = CreateTool(handler, DriveWriteOptions.Default);
+
+        var result = await tool.RunAsync(null!, "notes.md", "content", conflictBehavior: "rename", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.StartWith("[DRY RUN]"));
+            Assert.That(result, Does.Contain("already exists"));
+            Assert.That(result, Does.Contain("conflict_behavior=rename"));
+            Assert.That(result, Does.Contain("Not written"));
+        });
+    }
 }

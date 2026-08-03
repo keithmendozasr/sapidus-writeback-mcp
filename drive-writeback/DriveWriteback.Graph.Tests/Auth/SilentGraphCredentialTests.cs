@@ -92,4 +92,29 @@ public class SilentGraphCredentialTests
 
         Assert.That(requestCount, Is.EqualTo(1));
     }
+
+    [Test]
+    public async Task GetTokenAsync_redeems_again_once_the_cached_access_token_is_near_expiry()
+    {
+        var store = new FakeRefreshTokenStore("initial-refresh-token");
+        var requestCount = 0;
+        var handler = new StubHttpMessageHandler(_ =>
+        {
+            requestCount++;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"access_token":"new-access-token","refresh_token":"rotated-refresh-token","expires_in":0}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+        var credential = CreateCredential(handler, store);
+
+        await credential.GetTokenAsync(new TokenRequestContext(["Files.ReadWrite.All"]), CancellationToken.None);
+        await credential.GetTokenAsync(new TokenRequestContext(["Files.ReadWrite.All"]), CancellationToken.None);
+
+        Assert.That(requestCount, Is.EqualTo(2));
+    }
 }

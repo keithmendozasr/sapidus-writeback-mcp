@@ -15,6 +15,12 @@
           "jsonpath": "$.extensions.mcp.serverVersion"
         }
       ]
+    },
+    "drive-writeback": {
+      "release-type": "simple",
+      "package-name": "drive-writeback",
+      "include-v-in-tag": false,
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

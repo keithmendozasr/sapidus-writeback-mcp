@@ -37,4 +37,16 @@ public class SilentGraphCredentialTests
 
         Assert.That(token.Token, Is.EqualTo("new-access-token"));
     }
+
+    [Test]
+    public async Task GetTokenAsync_persists_the_rotated_refresh_token_returned_by_the_token_endpoint()
+    {
+        var store = new FakeRefreshTokenStore("initial-refresh-token");
+        var handler = CreateHandler("new-access-token", "rotated-refresh-token");
+        var credential = CreateCredential(handler, store);
+
+        await credential.GetTokenAsync(new TokenRequestContext(["Files.ReadWrite.All"]), CancellationToken.None);
+
+        Assert.That(await store.GetRefreshTokenAsync(), Is.EqualTo("rotated-refresh-token"));
+    }
 }

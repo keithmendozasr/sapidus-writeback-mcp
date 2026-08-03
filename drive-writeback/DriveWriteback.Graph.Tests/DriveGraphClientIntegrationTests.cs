@@ -112,4 +112,28 @@ public class DriveGraphClientIntegrationTests
             () => CreateClient(handler).CreateFileAsync("notes.md", "content", conflictBehavior: "fail", driveId: "drive-id"),
             Throws.InstanceOf<DriveItemAlreadyExistsException>());
     }
+
+    [Test]
+    public void CreateFileAsync_throws_DriveParentNotFoundException_when_the_parent_path_is_missing()
+    {
+        // Every request in this scenario is the parent-path existence check, which
+        // reports "not found" - the content PUT itself must never be attempted (PRD §4.4:
+        // parents are never auto-created).
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Get));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+
+        Assert.That(
+            () => CreateClient(handler).CreateFileAsync("sub/notes.md", "content", conflictBehavior: "replace", driveId: "drive-id"),
+            Throws.InstanceOf<DriveParentNotFoundException>());
+    }
 }

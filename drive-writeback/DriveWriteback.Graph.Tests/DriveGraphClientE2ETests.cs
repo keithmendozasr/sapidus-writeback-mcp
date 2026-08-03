@@ -127,4 +127,31 @@ public class DriveGraphClientE2ETests
             await _client!.DeleteItemAsync(path);
         }
     }
+
+    /// <summary>
+    /// PRD §11 Phase 0: "Confirm site ID and item ID formats so the path-vs-ID
+    /// discriminator in §5 is sound." The property that discriminator actually needs is
+    /// narrow: a drive-relative path can always contain '/', so an item id containing '/'
+    /// would make "is this string a path or already an id" ambiguous. This test reports
+    /// the observed id shape for the record and asserts that discriminating property holds.
+    /// </summary>
+    [Test]
+    public async Task GetItemByPathAsync_returns_an_id_that_never_looks_like_a_path()
+    {
+        var path = $"phase0-spike-id-{Guid.NewGuid():N}.txt";
+
+        try
+        {
+            await _client!.UploadTextContentAsync(path, "v1");
+            var item = await _client.GetItemByPathAsync(path);
+
+            Assert.That(item?.Id, Is.Not.Null.And.Not.Empty);
+            TestContext.Out.WriteLine($"PRD §5 finding: OneDrive item id shape = '{item!.Id}' (length {item.Id!.Length}).");
+            Assert.That(item.Id, Does.Not.Contain("/"), "An item id containing '/' would collide with the path-vs-ID discriminator §5 needs.");
+        }
+        finally
+        {
+            await _client!.DeleteItemAsync(path);
+        }
+    }
 }

@@ -14,8 +14,14 @@ var scopes = new[] { "Files.ReadWrite.All", "Sites.Read.All" };
 var tenantId = Environment.GetEnvironmentVariable("DRIVE_WRITEBACK_TENANT_ID")
     ?? throw new InvalidOperationException("DRIVE_WRITEBACK_TENANT_ID is not set.");
 
+if (!Guid.TryParse(tenantId, out _))
+    throw new InvalidOperationException("DRIVE_WRITEBACK_TENANT_ID is not a valid GUID - check the value copied from `az account show`.");
+
 var clientId = Environment.GetEnvironmentVariable("DRIVE_WRITEBACK_CLIENT_ID")
     ?? throw new InvalidOperationException("DRIVE_WRITEBACK_CLIENT_ID is not set.");
+
+if (!Guid.TryParse(clientId, out _))
+    throw new InvalidOperationException("DRIVE_WRITEBACK_CLIENT_ID is not a valid GUID - check the value copied from `az ad app show`.");
 
 var keyVaultUri = Environment.GetEnvironmentVariable("DRIVE_WRITEBACK_KEY_VAULT_URI")
     ?? throw new InvalidOperationException("DRIVE_WRITEBACK_KEY_VAULT_URI is not set.");

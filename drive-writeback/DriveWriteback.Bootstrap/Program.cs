@@ -27,12 +27,12 @@ listener.Prefixes.Add(redirectUri);
 listener.Start();
 
 var authorizeUrl =
-    $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize" +
+    $"https://login.microsoftonline.com/{Uri.EscapeDataString(tenantId)}/oauth2/v2.0/authorize" +
     $"?client_id={Uri.EscapeDataString(clientId)}" +
     "&response_type=code" +
     $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
     $"&scope={Uri.EscapeDataString(string.Join(' ', scopes.Append("offline_access")))}" +
-    $"&code_challenge={codeChallenge}" +
+    $"&code_challenge={Uri.EscapeDataString(codeChallenge)}" +
     "&code_challenge_method=S256";
 
 Console.WriteLine("Opening your browser to sign in to your Microsoft 365 tenant...");

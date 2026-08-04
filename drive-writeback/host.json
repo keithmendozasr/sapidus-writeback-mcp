@@ -1,0 +1,18 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    }
+  },
+  "extensions": {
+    "mcp": {
+      "serverName": "drive-writeback-mcp",
+      "serverVersion": "0.1.0",
+      "instructions": "Write-only OneDrive tools. get_item fetches metadata (eTag, cTag, size, folder/file, web URL) for a drive-relative path or item ID - it is a pre-write safety check, not a browsing tool; a not-found target surfaces as an error, not a negative answer. create_folder implements mkdir -p: it walks the path from the drive root, creating each missing segment, and is idempotent - an already-existing path succeeds with no changes. create_file creates a new file with inline text content; conflict_behavior defaults to 'fail' and also accepts 'rename' (appends a numeric suffix on collision) and 'replace' (overwrites). Parents are never auto-created by create_file - call create_folder first, or a typo'd path fails loudly rather than silently materializing a folder tree. This server may be running in dry-run mode, in which case every write tool validates and resolves but makes no actual change - its response is prefixed '[DRY RUN]' and states plainly that nothing was written or created. This server has no delete or update-in-place surface yet and no search tool - obtain paths/IDs from the Microsoft 365 connector's read/search tools, which share the same Graph ID space."
+    }
+  }
+}

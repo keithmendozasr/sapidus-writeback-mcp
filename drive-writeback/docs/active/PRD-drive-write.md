@@ -286,7 +286,7 @@ Unchanged from `outlook-writeback`:
 - **Confirm "Assignment required" on the Connector app's Enterprise Application works on the tenant's actual Entra license tier.** The Q8 action item (restrict Connector app sign-in to a single user, closing the any-tenant-user-can-authenticate gap) depends on this. **Resolved:** tenant is Entra ID Free. Individual user assignment (not group-based) works on Free tier without a P1/P2 upgrade — confirmed compatible.
 
 **Phase 1 — Safe creates**
-`get_item`, `create_folder`, `create_file`. Dry-run on.
+`get_item`, `create_folder`, `create_file`. Dry-run on. **Implemented, pending deployment** — see `drive-writeback/CLAUDE.md` Status for detail. One open question surfaced during implementation and remains genuinely open, not resolved: whether Graph's `@microsoft.graph.conflictBehavior` is honored as a raw query parameter on the simple-upload content PUT the way it is on `POST .../children`. A live probe test exists (`DriveGraphClientE2ETests.ContentPut_conflictBehavior_query_parameter_is_an_open_question`) but has never been run against a live tenant. `create_file`'s `conflict_behavior` handling does not depend on the answer either way — it's enforced entirely client-side (existence pre-check, then unconditional PUT) — so this is a recorded gap in tenant-behavior knowledge, not a blocker. A related diagnostic (does a content PUT to a missing parent auto-vivify it or 404) is similarly unrun and similarly moot for this server's own behavior (`CreateFileAsync` guards against a missing parent before ever reaching Graph).
 
 **Phase 2 — Mutation surface**
 `update_file_content`, `rename_item`, `move_item`, `delete_item`.

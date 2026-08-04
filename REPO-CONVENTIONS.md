@@ -82,6 +82,8 @@ Naming stays traceable end-to-end: folder name → resource group → Function A
 
 If it's unclear whether something belongs in `shared/`, the test is: *would this code need to change if a new server's Graph scopes changed?* If yes, it's server-specific, not shared.
 
+**Boundary-7a auth code (redeem-refresh-token / cache-access-token / rotate-refresh-token) is a specific case that looks shareable but isn't extracted.** It's fully parameterized (tenant, client, scopes, token store all passed in) and holds no server identity or secret material itself — but sharing it would couple every server's Graph-auth failures and changes together, which is exactly what §1's "independently deployable, independently revocable" is meant to prevent. It also isn't purely mechanical forever: a scope needing `Sites.Selected`-style access requires application (client-credentials) auth instead of delegated refresh-token auth, a structurally different flow. Duplication cost is accepted deliberately here, not an oversight.
+
 ## 5. Entra App Registration naming
 
 Display name pattern: **"`<Server Name>` MCP"** in title case, e.g. "Outlook Writeback MCP." (This is one instance of the broader agent-agnostic principle in §9 — the naming rule below is about keeping the *architecture* client-neutral, not about avoiding Claude in docs generally.)

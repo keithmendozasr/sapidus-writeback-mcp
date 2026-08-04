@@ -8,5 +8,7 @@
   <Folder Name="/drive-writeback/">
     <Project Path="drive-writeback/DriveWriteback.Graph.Tests/DriveWriteback.Graph.Tests.csproj" />
     <Project Path="drive-writeback/DriveWriteback.Graph/DriveWriteback.Graph.csproj" />
+    <Project Path="drive-writeback/DriveWriteback.csproj" />
+    <Project Path="drive-writeback/DriveWriteback.Bootstrap/DriveWriteback.Bootstrap.csproj" />
   </Folder>
 </Solution>

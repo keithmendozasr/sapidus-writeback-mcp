@@ -4,6 +4,7 @@ using Microsoft.Graph.Drives.Item.Items.Item;
 using Microsoft.Graph.Drives.Item.Items.Item.Children;
 using Microsoft.Graph.Models;
 using Microsoft.Graph.Models.ODataErrors;
+using DriveWriteback.Graph.Auth;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DriveWriteback.Graph.Tests")]
 
@@ -29,6 +30,14 @@ namespace DriveWriteback.Graph;
 public sealed class DriveGraphClient(GraphServiceClient client)
 {
     /// <summary>
+    /// Test-only escape hatch for probing Graph SDK behavior this class doesn't wrap yet -
+    /// see the conflictBehavior-on-content-PUT probe in DriveGraphClientE2ETests, which
+    /// needs to build a request this class has no public method for. Internal, not public:
+    /// nothing outside the InternalsVisibleTo'd test project should reach through this.
+    /// </summary>
+    internal GraphServiceClient RawClient => client;
+
+    /// <summary>
     /// Requires the Entra app to be registered as a public client with
     /// "http://localhost" listed under Mobile and desktop redirect URIs - a
     /// confidential/web registration will fail the redirect-URI check at sign-in.
@@ -47,6 +56,26 @@ public sealed class DriveGraphClient(GraphServiceClient client)
             });
 
         var client = new GraphServiceClient(credential, scopes);
+
+        return new DriveGraphClient(client);
+    }
+
+    /// <summary>
+    /// Non-interactive counterpart to CreateWithInteractiveBrowserAuth, for a deployed
+    /// service that can't pop a browser - silently redeems a refresh token cached in
+    /// refreshTokenStore instead. The refresh token itself must be seeded once via a
+    /// separate interactive bootstrap step (see DriveWriteback.Bootstrap).
+    /// </summary>
+    public static DriveGraphClient CreateWithSilentRefreshAuth(
+        string tenantId,
+        string clientId,
+        IEnumerable<string> scopes,
+        IRefreshTokenStore refreshTokenStore)
+    {
+        var scopeArray = scopes as string[] ?? [.. scopes];
+        var tokenEndpointClient = new GraphTokenEndpointClient(tenantId, clientId);
+        var credential = new SilentGraphCredential(tokenEndpointClient, refreshTokenStore, scopeArray);
+        var client = new GraphServiceClient(credential, scopeArray);
 
         return new DriveGraphClient(client);
     }
@@ -212,6 +241,23 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     }
 
     /// <summary>
+    /// The path-vs-ID discriminator wrapper get_item needs (PRD §5): decides which of
+    /// GetItemByIdAsync/GetItemByPathAsync to call using DrivePath.LooksLikeItemId, and
+    /// reports which interpretation it used so a misclassification is visible to the
+    /// caller rather than silent (see DrivePath.LooksLikeItemId's doc comment).
+    /// </summary>
+    public async Task<ItemResolution> GetItemAsync(
+        string pathOrId,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (DrivePath.LooksLikeItemId(pathOrId))
+            return new ItemResolution(await GetItemByIdAsync(pathOrId, driveId, cancellationToken), ResolvedAsId: true);
+
+        return new ItemResolution(await GetItemByPathAsync(pathOrId, driveId, cancellationToken), ResolvedAsId: false);
+    }
+
+    /// <summary>
     /// Uploads small text content (Graph's simple-upload path, at or below 4 MB) to the
     /// given drive-relative path. Fails outright if something already exists there -
     /// this spike doesn't exercise conflictBehavior on upload, only on folder creation.
@@ -243,6 +289,26 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
 
         return await ResolvePathItem(resolvedDriveId, path).GetAsync(cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Wraps GetItemByPathAsync, returning null on a 404 instead of throwing - the
+    /// existence check create_file's conflict_behavior handling and ResolveFolderPathAsync
+    /// both need.
+    /// </summary>
+    public async Task<DriveItem?> TryGetItemByPathAsync(
+        string path,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await GetItemByPathAsync(path, driveId, cancellationToken);
+        }
+        catch (ODataError error) when (error.ResponseStatusCode == 404)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -285,6 +351,125 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         await ResolvePathItem(resolvedDriveId, path).DeleteAsync(cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Read-only counterpart to CreateFolderPathAsync's mkdir-p walk: resolves as far as
+    /// existing folders go and reports which trailing segments are missing, without ever
+    /// POSTing. This is what dry-run mode calls instead of actually creating anything.
+    /// Reuses the same id-chained ResolveExistingChildByParentIdAsync CreateFolderPathAsync
+    /// uses, for the same colon-path-is-unreliable reason documented there.
+    /// </summary>
+    public async Task<FolderPathResolution> ResolveFolderPathAsync(
+        string fullPath,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = DrivePath.Normalize(fullPath);
+
+        if (normalized.Length == 0)
+            return new FolderPathResolution(null, []);
+
+        var segments = normalized.Split('/');
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        string? parentId = null;
+        DriveItem? deepestExisting = null;
+
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var found = await ResolveExistingChildByParentIdAsync(resolvedDriveId, parentId, segments[i], cancellationToken);
+
+            if (found is null)
+                return new FolderPathResolution(deepestExisting, segments[i..]);
+
+            deepestExisting = found;
+            parentId = found.Id;
+        }
+
+        return new FolderPathResolution(deepestExisting, []);
+    }
+
+    /// <summary>
+    /// Creates a file with inline text content. Parents are NOT auto-created (PRD §4.4) -
+    /// callers wanting mkdir-p call CreateFolderPathAsync first; this throws
+    /// DriveParentNotFoundException if the parent path doesn't resolve.
+    ///
+    /// conflict_behavior is enforced client-side - pre-check via TryGetItemByPathAsync, then
+    /// "fail" throws, "rename" appends a numeric suffix, "replace" PUTs unconditionally -
+    /// rather than via Graph's @microsoft.graph.conflictBehavior query parameter on the
+    /// simple-upload PUT endpoint. See
+    /// DriveGraphClientE2ETests.ContentPut_conflictBehavior_query_parameter_is_an_open_question:
+    /// the SDK exposes no typed support for that parameter, and whether Graph honors it as a
+    /// raw query string is an unrun probe, not a confirmed fact - this implementation doesn't
+    /// depend on the answer either way. The client-side "fail"/"rename" pre-check is
+    /// TOCTOU-racy (a concurrent writer between the check and the PUT could still be
+    /// silently overwritten); tighten to a server-enforced conflictBehavior if that probe
+    /// later confirms Graph honors it.
+    /// </summary>
+    public async Task<DriveItem?> CreateFileAsync(
+        string path,
+        string content,
+        string conflictBehavior = "fail",
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (conflictBehavior is not ("fail" or "rename" or "replace"))
+            throw new ArgumentException($"conflictBehavior must be 'fail', 'rename', or 'replace' - got '{conflictBehavior}'.", nameof(conflictBehavior));
+
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var (parentPath, name) = DrivePath.SplitParent(path);
+
+        if (parentPath.Length > 0 && await TryGetItemByPathAsync(parentPath, resolvedDriveId, cancellationToken) is null)
+            throw new DriveParentNotFoundException(parentPath);
+
+        var targetPath = path;
+
+        if (conflictBehavior is "fail" or "rename")
+        {
+            var existing = await TryGetItemByPathAsync(path, resolvedDriveId, cancellationToken);
+
+            if (existing is not null)
+            {
+                if (conflictBehavior == "fail")
+                    throw new DriveItemAlreadyExistsException(name);
+
+                targetPath = await ResolveNonCollidingPathAsync(parentPath, name, resolvedDriveId, cancellationToken);
+            }
+        }
+
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
+
+        return await ResolvePathItem(resolvedDriveId, targetPath)
+            .Content
+            .PutAsync(stream, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Appends a numeric " (n)" suffix (before the extension) until a path that doesn't
+    /// already exist is found - the client-side implementation of conflict_behavior:
+    /// "rename". Capped rather than unbounded: a runaway loop here would mean something is
+    /// wrong with the existence check, not that 1000 same-named files genuinely exist.
+    /// </summary>
+    private async Task<string> ResolveNonCollidingPathAsync(
+        string parentPath,
+        string name,
+        string driveId,
+        CancellationToken cancellationToken)
+    {
+        var dotIndex = name.LastIndexOf('.');
+        var stem = dotIndex < 0 ? name : name[..dotIndex];
+        var extension = dotIndex < 0 ? "" : name[dotIndex..];
+
+        for (var suffix = 1; suffix <= 1000; suffix++)
+        {
+            var candidateName = $"{stem} ({suffix}){extension}";
+            var candidatePath = parentPath.Length == 0 ? candidateName : $"{parentPath}/{candidateName}";
+
+            if (await TryGetItemByPathAsync(candidatePath, driveId, cancellationToken) is null)
+                return candidatePath;
+        }
+
+        throw new InvalidOperationException($"Could not find a non-colliding name for '{parentPath}/{name}' after 1000 attempts.");
+    }
+
     private async Task<string> ResolveOwnDriveIdAsync(CancellationToken cancellationToken)
     {
         var drive = await client.Me.Drive.GetAsync(cancellationToken: cancellationToken);
@@ -302,14 +487,31 @@ public sealed class DriveGraphClient(GraphServiceClient client)
 }
 
 /// <summary>
-/// Surfaced when a folder-segment create hits Graph's 409 for an existing name -
-/// the "already exists, continue" signal mkdir -p semantics (PRD §4.4) depend on.
+/// Surfaced when a folder-segment create hits Graph's 409 for an existing name (inner set),
+/// or when create_file's client-side conflict_behavior: "fail" pre-check finds an existing
+/// target before ever calling Graph (inner null - there's no ODataError to attach, since
+/// no request was made).
 /// </summary>
-public sealed class DriveItemAlreadyExistsException(string itemName, ODataError inner)
+public sealed class DriveItemAlreadyExistsException(string itemName, ODataError? inner = null)
     : Exception($"An item named '{itemName}' already exists at this location.", inner)
 {
     public string ItemName { get; } = itemName;
 }
+
+/// <summary>
+/// Result of a read-only mkdir-p walk (see DriveGraphClient.ResolveFolderPathAsync):
+/// DeepestExisting is the last segment found to already exist (null if even the first
+/// segment is missing); MissingSegments is every segment from the first missing one
+/// onward, in order.
+/// </summary>
+public sealed record FolderPathResolution(DriveItem? DeepestExisting, IReadOnlyList<string> MissingSegments);
+
+/// <summary>
+/// Result of DriveGraphClient.GetItemAsync's path-vs-ID discriminator: Item is the
+/// resolved item (null if not found), ResolvedAsId records which interpretation of the
+/// input string was used.
+/// </summary>
+public sealed record ItemResolution(DriveItem? Item, bool ResolvedAsId);
 
 /// <summary>
 /// Surfaced when a content replacement's If-Match tag doesn't match Graph's current
@@ -320,4 +522,27 @@ public sealed class DriveItemConcurrencyException(string path, string attemptedT
 {
     public string Path { get; } = path;
     public string AttemptedTag { get; } = attemptedTag;
+}
+
+/// <summary>
+/// Surfaced by create_file/create_folder when the target's parent path does not exist -
+/// per PRD §4.4, parents are not auto-created, so a typo'd path fails loudly rather than
+/// silently materializing a folder tree.
+/// </summary>
+public sealed class DriveParentNotFoundException(string parentPath)
+    : Exception($"Parent path '{parentPath}' does not exist. Parents are not auto-created - call create_folder first.")
+{
+    public string ParentPath { get; } = parentPath;
+}
+
+/// <summary>
+/// Surfaced when create_file's content exceeds the configured MaxContentBytes cap (PRD §7,
+/// §9 item 5) - enforced before the Graph call, not left to Graph's own 4 MB simple-upload
+/// ceiling.
+/// </summary>
+public sealed class DriveContentTooLargeException(long actualBytes, long maxBytes)
+    : Exception($"Content is {actualBytes} bytes, exceeding the {maxBytes}-byte limit.")
+{
+    public long ActualBytes { get; } = actualBytes;
+    public long MaxBytes { get; } = maxBytes;
 }

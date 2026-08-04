@@ -1,3 +1,5 @@
+using Microsoft.Graph;
+
 namespace DriveWriteback.Graph.Tests;
 
 /// <summary>
@@ -29,6 +31,62 @@ public class DriveGraphClientE2ETests
             tenantId!,
             clientId!,
             ["Files.ReadWrite.All", "Sites.Read.All"]);
+    }
+
+    /// <summary>
+    /// Phase 1 §1 open question: does PUT .../content honor @microsoft.graph.conflictBehavior
+    /// as a query parameter the way POST .../children does? Confirmed by reflecting on the
+    /// 6.2.0 assembly that ContentRequestBuilder.PutAsync/ToPutRequestInformation take only
+    /// Microsoft.Kiota.Abstractions.DefaultQueryParameters - no typed conflictBehavior
+    /// parameter exists - so this probes it the only way available: build the request via
+    /// the SDK, then append the raw query string to RequestInformation.URI before sending
+    /// through RawClient.RequestAdapter directly, bypassing DriveGraphClient's public
+    /// surface entirely (this test exists to inform CreateFileAsync's design, not exercise
+    /// a method that uses its result).
+    ///
+    /// CreateFileAsync (§1) does NOT gate on this test's outcome - it pre-checks existence
+    /// via TryGetItemByPathAsync and applies conflict_behavior client-side regardless, which
+    /// is correct whether or not Graph honors the query parameter. This is a recorded
+    /// observation, not a prerequisite - and as of this commit it has never been run against
+    /// a live tenant (no browser session available in this implementation pass). Write the
+    /// finding back to docs/active/PRD-drive-write.md §11 once someone does run it.
+    /// </summary>
+    [Test]
+    public async Task ContentPut_conflictBehavior_query_parameter_is_an_open_question()
+    {
+        var raw = _client!.RawClient;
+        var driveId = (await raw.Me.Drive.GetAsync())!.Id!;
+        var path = $"phase0-spike-conflict-probe-{Guid.NewGuid():N}.txt";
+
+        try
+        {
+            using (var firstStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("v1")))
+            {
+                await raw.Drives[driveId].Items["root"].ItemWithPath(path).Content.PutAsync(firstStream);
+            }
+
+            var contentBuilder = raw.Drives[driveId].Items["root"].ItemWithPath(path).Content;
+
+            using var secondStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("v2-should-conflict-if-honored"));
+            var requestInfo = contentBuilder.ToPutRequestInformation(secondStream);
+            requestInfo.URI = new Uri($"{requestInfo.URI}?@microsoft.graph.conflictBehavior=fail");
+
+            try
+            {
+                await raw.RequestAdapter.SendAsync(requestInfo, Microsoft.Graph.Models.DriveItem.CreateFromDiscriminatorValue);
+                TestContext.Out.WriteLine(
+                    "Phase 1 §1 finding: PUT .../content did NOT honor @microsoft.graph.conflictBehavior=fail - it overwrote instead of 409ing.");
+            }
+            catch (Microsoft.Graph.Models.ODataErrors.ODataError error) when (error.ResponseStatusCode == 409)
+            {
+                TestContext.Out.WriteLine(
+                    "Phase 1 §1 finding: PUT .../content DOES honor @microsoft.graph.conflictBehavior=fail - it 409'd as expected.");
+            }
+        }
+        finally
+        {
+            await raw.Drives[driveId].Items["root"].ItemWithPath(path).DeleteAsync();
+        }
     }
 
     /// <summary>

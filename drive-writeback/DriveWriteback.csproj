@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Sibling project folders (DriveWriteback.Graph, .Graph.Tests, .Bootstrap) live under
+         this same directory - exclude them so the default recursive glob doesn't compile
+         their sources into this project too. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);DriveWriteback.Graph/**;DriveWriteback.Graph.Tests/**;DriveWriteback.Bootstrap/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" OutputItemType="Analyzer" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.4.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.50.0" />
+    <!-- Pinned to the 2.x line, not the newer 3.1.2 major release: Worker.ApplicationInsights
+         2.50.0 transitively depends on Microsoft.ApplicationInsights.PerfCounterCollector
+         2.23.0 (AI SDK 2.x). Forcing 3.1.2 loads an incompatible ITelemetryInitializer and
+         crashes the isolated worker process with a TypeLoadException at startup. -->
+    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="2.23.0" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="DriveWriteback.Graph\DriveWriteback.Graph.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="host.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="local.settings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Condition="Exists('local.settings.json')" />
+  </ItemGroup>
+
+</Project>

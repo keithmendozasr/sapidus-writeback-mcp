@@ -249,4 +249,61 @@ public class DriveGraphClientIntegrationTests
 
         Assert.That(result?.Name, Is.EqualTo("new-name.md"));
     }
+
+    [Test]
+    public async Task MoveItemAsync_sends_a_PATCH_with_the_new_parent_id()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                // Destination-parent lookup, used for the same-drive defense-in-depth check.
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"id":"new-parent-id","parentReference":{"driveId":"drive-id"}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            var body = await request.Content!.ReadAsStringAsync();
+            Assert.That(body, Does.Contain("\"id\":\"new-parent-id\""));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var result = await CreateClient(handler).MoveItemAsync("item-id", "new-parent-id", driveId: "drive-id");
+
+        Assert.That(result?.Id, Is.EqualTo("item-id"));
+    }
+
+    [Test]
+    public void MoveItemAsync_throws_DriveCrossDriveMoveException_when_the_destination_resolves_to_a_different_drive()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            // Every request in this scenario is the destination-parent lookup, which reports
+            // an owning drive different from the one the call was made under - the PATCH
+            // itself must never be attempted.
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Get));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"id":"new-parent-id","parentReference":{"driveId":"a-different-drive-id"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+
+        Assert.That(
+            () => CreateClient(handler).MoveItemAsync("item-id", "new-parent-id", driveId: "drive-id"),
+            Throws.InstanceOf<DriveCrossDriveMoveException>());
+    }
 }

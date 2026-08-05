@@ -187,4 +187,49 @@ public class DriveItemDeletionServiceTests
 
         Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.DryRun));
     }
+
+    [Test]
+    public void ConfirmDeletionAsync_re_checks_expected_name_and_throws_on_drift_since_the_preview()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var token = tokenService.Issue("item-id");
+
+        // The item was renamed between the preview and confirm calls - the token still
+        // validates (it only binds the id), but the name re-check must still catch this.
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"id":"item-id","name":"renamed-since-preview.md"}""", Encoding.UTF8, "application/json"),
+        }));
+
+        var (service, _) = CreateService(handler, now, tokenService: tokenService);
+
+        Assert.That(
+            () => service.ConfirmDeletionAsync("item-id", token, "notes.md", recursive: false, driveId: "drive-id"),
+            Throws.InstanceOf<DriveItemNameMismatchException>());
+    }
+
+    [Test]
+    public void ConfirmDeletionAsync_re_checks_recursive_and_throws_when_the_folder_gained_children_since_the_preview()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var token = tokenService.Issue("folder-id");
+
+        // The folder was empty at preview time but gained a child before confirm - the race
+        // this re-check exists to close. Must fail closed, not trust the preview.
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"folder-id","name":"reports","folder":{"childCount":1}}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        var (service, _) = CreateService(handler, now, tokenService: tokenService);
+
+        Assert.That(
+            () => service.ConfirmDeletionAsync("folder-id", token, "reports", recursive: false, driveId: "drive-id"),
+            Throws.InstanceOf<DriveFolderNotEmptyException>());
+    }
 }

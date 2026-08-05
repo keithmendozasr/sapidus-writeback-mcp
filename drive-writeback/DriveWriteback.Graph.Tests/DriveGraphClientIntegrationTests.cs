@@ -344,4 +344,53 @@ public class DriveGraphClientIntegrationTests
             () => CreateClient(handler).ReplaceContentByIdAsync("item-id", "new content", "stale-etag", driveId: "drive-id"),
             Throws.InstanceOf<DriveItemConcurrencyException>());
     }
+
+    [Test]
+    public void GetItemByPathAsync_rejects_a_SharePoint_document_library_drive()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("The item lookup must never be reached once the drive is rejected."),
+            ownDriveType: "documentLibrary");
+
+        Assert.That(
+            () => CreateClient(handler).GetItemByPathAsync("notes.md", driveId: "drive-id"),
+            Throws.InstanceOf<SharePointDriveNotSupportedException>());
+    }
+
+    [Test]
+    public void GetItemByPathAsync_rejects_an_unrecognized_or_missing_drive_type()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("The item lookup must never be reached once the drive is rejected."),
+            ownDriveType: null);
+
+        Assert.That(
+            () => CreateClient(handler).GetItemByPathAsync("notes.md", driveId: "drive-id"),
+            Throws.InstanceOf<SharePointDriveNotSupportedException>(),
+            "An unrecognized driveType must fail closed, not be treated as an allowed OneDrive.");
+    }
+
+    [Test]
+    public async Task CreateFileAsync_validates_a_given_drive_id_only_once_across_its_own_parent_and_target_checks()
+    {
+        var handler = new StubHttpMessageHandler(request => request.Method == HttpMethod.Get
+            ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            })
+            : Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"new-id"}""", Encoding.UTF8, "application/json"),
+            }));
+
+        await CreateClient(handler).CreateFileAsync("notes.md", "content", conflictBehavior: "fail", driveId: "drive-id");
+
+        Assert.That(
+            handler.DriveMetadataRequestCount,
+            Is.EqualTo(1),
+            "CreateFileAsync's own drive resolution and its nested TryGetItemByPathAsync target-exists check both resolve the same driveId - the drive-type validation should be cached, not repeated.");
+    }
 }

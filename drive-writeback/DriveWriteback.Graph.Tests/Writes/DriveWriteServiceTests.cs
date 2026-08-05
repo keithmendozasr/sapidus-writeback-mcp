@@ -370,4 +370,37 @@ public class DriveWriteServiceTests
             Assert.That(result.Item?.Id, Is.EqualTo("item-id"));
         });
     }
+
+    [Test]
+    public async Task DeleteItemAsync_dry_run_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Dry-run must never send any Graph request for delete."));
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.DeleteItemAsync("item-id", driveId: "drive-id");
+
+        Assert.That(result.DryRun, Is.True);
+    }
+
+    [Test]
+    public async Task DeleteItemAsync_real_mode_sends_a_DELETE()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Delete));
+                Assert.That(request.RequestUri!.ToString(), Does.Contain("items/item-id"));
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.DeleteItemAsync("item-id", driveId: "drive-id");
+
+        Assert.That(result.DryRun, Is.False);
+    }
 }

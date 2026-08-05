@@ -17,7 +17,7 @@ public sealed class RenameItemTool(DriveWriteService writeService)
         [McpToolProperty("path_or_id", "Drive-relative path or a Graph item ID. Both are accepted anywhere the other is.", isRequired: true)]
             string pathOrId,
         [McpToolProperty("new_name", "The item's new name.", isRequired: true)] string newName,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var result = await writeService.RenameItemAsync(pathOrId, newName, driveId);

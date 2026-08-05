@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Azure.Identity;
 using Microsoft.Graph;
 using Microsoft.Graph.Drives.Item.Items.Item;
@@ -36,6 +37,16 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     /// nothing outside the InternalsVisibleTo'd test project should reach through this.
     /// </summary>
     internal GraphServiceClient RawClient => client;
+
+    /// <summary>
+    /// Drive ids already confirmed (via ResolveDriveIdAsync) to be a OneDrive, not a SharePoint
+    /// document library - avoids a repeat GET /drives/{id} on every call in the same chain (e.g.
+    /// CreateFileAsync's parent-check/target-check/rename-collision-loop all resolve the same
+    /// driveId). This class is registered as a DI singleton (Program.cs), so the set is
+    /// concurrent and lives for the process lifetime - a drive's type never changes, so caching
+    /// it forever is safe.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, byte> validatedOneDriveIds = new();
 
     /// <summary>
     /// Requires the Entra app to be registered as a public client with
@@ -620,14 +631,40 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     }
 
     /// <summary>
-    /// Resolves the effective drive id every method above acts against: omitted, the
-    /// signed-in user's own OneDrive (never SharePoint, so no further check needed); supplied,
-    /// the given drive id as-is. Extracted so every call site shares one place to resolve
-    /// against, rather than repeating the `driveId ?? ResolveOwnDriveIdAsync` idiom - this
-    /// commit is a pure refactor with no behavior change.
+    /// Resolves the effective drive id every method above acts against, and is this server's
+    /// one enforcement point for staying OneDrive-only: omitted, the signed-in user's own
+    /// OneDrive (GET /me/drive can never resolve to a SharePoint site drive, so no further
+    /// check is needed); supplied, the given id is validated by fetching its Drive resource and
+    /// checking driveType. SharePoint document libraries report "documentLibrary" - this fails
+    /// closed on that and on anything unrecognized (a missing/null driveType, or a value this
+    /// tenant hasn't been observed to return), allowing only "business"/"personal" through, so
+    /// an unanticipated Graph response can't silently bypass the guard. This is a deliberate
+    /// product decision, not a Phase-3-readiness gap: SharePoint hardening (checkout detection,
+    /// required-column draft-state, version reporting - PRD §11 Phase 3) was never built, so
+    /// this deployment rejects SharePoint drives outright rather than operating against them
+    /// unsafely. "Shared with me" items in another user's OneDrive still work - those report
+    /// driveType "business" too, same as the signed-in user's own drive.
+    /// Validated ids are cached in validatedOneDriveIds so a single call chain that touches the
+    /// same driveId repeatedly (e.g. CreateFileAsync's parent/target checks and its
+    /// rename-collision loop) only pays for one GET /drives/{id}.
     /// </summary>
-    private async Task<string> ResolveDriveIdAsync(string? driveId, CancellationToken cancellationToken) =>
-        driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+    private async Task<string> ResolveDriveIdAsync(string? driveId, CancellationToken cancellationToken)
+    {
+        if (driveId is null)
+            return await ResolveOwnDriveIdAsync(cancellationToken);
+
+        if (validatedOneDriveIds.ContainsKey(driveId))
+            return driveId;
+
+        var drive = await client.Drives[driveId].GetAsync(cancellationToken: cancellationToken);
+
+        if (drive?.DriveType is not ("business" or "personal"))
+            throw new SharePointDriveNotSupportedException(driveId, drive?.DriveType);
+
+        validatedOneDriveIds[driveId] = 0;
+
+        return driveId;
+    }
 
     private DriveItemItemRequestBuilder ResolveRootItem(string driveId, string? path) =>
         string.IsNullOrEmpty(path)
@@ -711,6 +748,22 @@ public sealed class DriveCrossDriveMoveException(string expectedDriveId, string 
 {
     public string ExpectedDriveId { get; } = expectedDriveId;
     public string ActualDriveId { get; } = actualDriveId;
+}
+
+/// <summary>
+/// Surfaced by ResolveDriveIdAsync when an explicitly-supplied drive_id resolves to a
+/// SharePoint document library (driveType "documentLibrary") or to anything else that isn't
+/// a recognized OneDrive ("business"/"personal"). This deployment deliberately does not
+/// support SharePoint document libraries - Phase 3's hardening (checkout detection,
+/// required-column draft-state, version reporting; PRD §11) was never built, so writing to a
+/// SharePoint library here would hit failure modes this server can't yet detect or explain.
+/// </summary>
+public sealed class SharePointDriveNotSupportedException(string driveId, string? actualDriveType)
+    : Exception($"Drive '{driveId}' is not a supported OneDrive (reported driveType: '{actualDriveType ?? "unknown"}'). " +
+        "This server only supports OneDrive; SharePoint document libraries are not supported.")
+{
+    public string DriveId { get; } = driveId;
+    public string? ActualDriveType { get; } = actualDriveType;
 }
 
 /// <summary>

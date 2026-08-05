@@ -18,7 +18,7 @@ public sealed class MoveItemTool(DriveWriteService writeService)
             string pathOrId,
         [McpToolProperty("new_parent_path_or_id", "Drive-relative path or a Graph item ID of the destination folder.", isRequired: true)]
             string newParentPathOrId,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var result = await writeService.MoveItemAsync(pathOrId, newParentPathOrId, driveId);

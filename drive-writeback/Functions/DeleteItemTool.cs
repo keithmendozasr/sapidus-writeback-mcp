@@ -28,7 +28,7 @@ public sealed class DeleteItemTool(DriveItemDeletionService deletionService)
             bool? recursive,
         [McpToolProperty("confirmation_token", "Omit on the first call. Supply the token returned by the first call to confirm the delete.")]
             string? confirmationToken,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var resolvedRecursive = recursive ?? false;

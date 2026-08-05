@@ -23,7 +23,7 @@ public sealed class UpdateFileContentTool(DriveWriteService writeService)
             string content,
         [McpToolProperty("if_match", "The eTag or cTag from a prior get_item call. Required.", isRequired: true)]
             string ifMatch,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var result = await writeService.UpdateFileContentAsync(pathOrId, content, ifMatch, driveId);

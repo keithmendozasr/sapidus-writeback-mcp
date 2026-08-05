@@ -21,7 +21,7 @@ public sealed class GetItemTool(DriveGraphClient client)
             "Drive-relative path (e.g. \"notes/2026-07.md\") or a Graph item ID. Both are accepted anywhere the other is.",
             isRequired: true)]
             string pathOrId,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var (item, resolvedAsId) = await client.GetItemAsync(pathOrId, driveId);

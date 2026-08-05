@@ -286,4 +286,88 @@ public class DriveWriteServiceTests
             Assert.That(result.Item?.Name, Is.EqualTo("new-name.md"));
         });
     }
+
+    [Test]
+    public async Task MoveItemAsync_dry_run_resolves_item_and_destination_and_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            var uri = request.RequestUri!.ToString();
+            var body = uri.Contains("target-folder")
+                ? """{"id":"parent-id","name":"target-folder","folder":{}}"""
+                : """{"id":"item-id","name":"notes.md"}""";
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.MoveItemAsync("notes.md", "target-folder", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.True);
+            Assert.That(result.NewParentId, Is.EqualTo("parent-id"));
+            Assert.That(result.Item?.Id, Is.EqualTo("item-id"));
+        });
+    }
+
+    [Test]
+    public async Task MoveItemAsync_real_mode_resolves_then_sends_a_PATCH()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var uri = request.RequestUri!.ToString();
+
+            if (request.Method == HttpMethod.Get && uri.Contains("target-folder"))
+            {
+                // Service-layer resolution of the destination parent by path.
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"parent-id","name":"target-folder","folder":{}}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            if (request.Method == HttpMethod.Get && uri.Contains("notes.md"))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            if (request.Method == HttpMethod.Get)
+            {
+                // DriveGraphClient.MoveItemAsync's own destination-by-id lookup for the
+                // same-drive defense-in-depth check.
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"parent-id","parentReference":{"driveId":"drive-id"}}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.MoveItemAsync("notes.md", "target-folder", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.NewParentId, Is.EqualTo("parent-id"));
+            Assert.That(result.Item?.Id, Is.EqualTo("item-id"));
+        });
+    }
 }

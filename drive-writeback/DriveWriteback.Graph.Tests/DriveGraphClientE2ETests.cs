@@ -289,6 +289,39 @@ public class DriveGraphClientE2ETests
     /// 404 and return, not throw. Self-skips like every other test in this fixture; unrun as
     /// of this commit.
     /// </summary>
+    /// <summary>
+    /// Load-bearing for ResolveDriveIdAsync's fail-closed SharePoint-rejection guard: the
+    /// allow-list there only permits driveType "business"/"personal" through. This asserts the
+    /// live tenant's own OneDrive actually reports one of those two values when its drive id is
+    /// passed explicitly (rather than omitted) - if a real M365 OneDrive ever reported
+    /// something else, the guard would wrongly reject every explicit-drive-id call against the
+    /// signed-in user's own drive, not just SharePoint document libraries. No SharePoint site
+    /// is available in this tenant to exercise the rejection side directly (see CLAUDE.md's
+    /// Status section) - this is the positive-path half of that guard's live verification.
+    /// </summary>
+    [Test]
+    public async Task GetItemByIdAsync_with_the_signed_in_user_s_own_drive_id_reports_an_allow_listed_driveType()
+    {
+        var ownDriveId = (await _client!.RawClient.Me.Drive.GetAsync())!.Id!;
+        var ownDrive = await _client.RawClient.Drives[ownDriveId].GetAsync();
+
+        TestContext.Out.WriteLine($"SharePoint-rejection guard finding: own OneDrive reports driveType = '{ownDrive?.DriveType}'.");
+        Assert.That(ownDrive?.DriveType, Is.EqualTo("business").Or.EqualTo("personal"),
+            "ResolveDriveIdAsync's allow-list only permits these two values - if this fails, the guard would reject the user's own OneDrive too.");
+
+        var path = $"phase2-spike-drive-guard-{Guid.NewGuid():N}.txt";
+
+        try
+        {
+            var created = await _client.UploadTextContentAsync(path, "v1", driveId: ownDriveId);
+            Assert.That(created, Is.Not.Null, "an explicit driveId for the user's own OneDrive must still be allowed through the guard.");
+        }
+        finally
+        {
+            await _client.DeleteItemAsync(path, driveId: ownDriveId);
+        }
+    }
+
     [Test]
     public async Task DeleteItemByIdAsync_is_idempotent_on_an_already_deleted_item()
     {

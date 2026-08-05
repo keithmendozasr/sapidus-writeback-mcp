@@ -118,21 +118,35 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
 4. Key Vault, RBAC-mode: `az keyvault create -g <server>-rg -n <server>-kv -l <region> --enable-rbac-authorization true --tags project=sapidus-writeback-mcp`.
 5. Grant the Function App's system-assigned managed identity **Key Vault Secrets Officer** on the vault (read *and* write — the app rotates the stored refresh token in place). If `az role assignment create` fails with `MissingSubscription`, use the `az rest` ARM-REST workaround documented in `outlook-writeback/DEPLOYMENT.md` step 5.
 6. Grant your own Entra user the same **Key Vault Secrets Officer** role, scoped for the one-time bootstrap write below.
-7. **No confirmation-signing-key secret** — unlike `outlook-writeback`'s `delete-confirmation-signing-key`, this server has no delete surface yet (Phase 2), so there's nothing analogous to provision here.
-8. Function App application settings — no Key Vault-reference setting needed here (unlike `outlook-writeback`'s confirmation-signing-key), so the PowerShell `--%` gotcha that doc describes doesn't apply to this list; a plain backtick-continued command is fine:
+7. **Confirmation-signing-key secret**, for `delete_item`'s two-step confirmation token (Phase 2) — same shape as `outlook-writeback`'s `delete-confirmation-signing-key`, generated fresh, not reused across servers.
+
+   PowerShell — generate the key with .NET's crypto RNG rather than relying on `openssl` being installed:
+   ```powershell
+   $signingKey = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+   az keyvault secret set --vault-name <server>-kv --name delete-confirmation-signing-key --value $signingKey
+   ```
+   bash/Git Bash:
+   ```bash
+   az keyvault secret set --vault-name <server>-kv --name delete-confirmation-signing-key \
+     --value "$(openssl rand -base64 32)"
+   ```
+8. Function App application settings.
+
+   **PowerShell gotcha, and it fails silently** — same one `outlook-writeback/DEPLOYMENT.md` step 8 documents in full: a plain backtick-continued `az functionapp config appsettings set` command silently truncates the trailing `)` off a Key Vault-reference app-setting value, leaving something `Convert.FromBase64String` can't parse and crashing the isolated worker at startup before any function registers. Now that this server has one Key Vault-reference setting too (`DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY`), the same `--%` stop-parsing workaround applies — **everything from `--%` onward must be on a single physical line**, no backtick continuations after it:
 
    PowerShell:
    ```powershell
    az functionapp config appsettings set `
      --resource-group <server>-rg `
      --name <server>-func `
-     --settings `
-       DRIVE_WRITEBACK_TENANT_ID=<tenant id> `
-       DRIVE_WRITEBACK_CLIENT_ID=<"Drive Writeback MCP" app registration's client id> `
-       DRIVE_WRITEBACK_KEY_VAULT_URI=https://<server>-kv.vault.azure.net/ `
-       DRIVE_WRITEBACK_DRY_RUN=true `
-       DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576
+     --settings --% DRIVE_WRITEBACK_TENANT_ID=<tenant id> DRIVE_WRITEBACK_CLIENT_ID=<"Drive Writeback MCP" app registration's client id> DRIVE_WRITEBACK_KEY_VAULT_URI=https://<server>-kv.vault.azure.net/ DRIVE_WRITEBACK_DRY_RUN=true DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576 DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY="@Microsoft.KeyVault(SecretUri=https://<server>-kv.vault.azure.net/secrets/delete-confirmation-signing-key/)"
    ```
+   After running it, verify the value came through intact — the failure mode is silent, not an error PowerShell surfaces:
+   ```powershell
+   az functionapp config appsettings list --resource-group <server>-rg --name <server>-func --query "[?name=='DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY'].value" -o tsv
+   ```
+   The value should end in `secrets/delete-confirmation-signing-key/)` — closing paren included.
+
    bash/Git Bash:
    ```bash
    az functionapp config appsettings set \
@@ -143,9 +157,10 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
        DRIVE_WRITEBACK_CLIENT_ID=<"Drive Writeback MCP" app registration's client id> \
        DRIVE_WRITEBACK_KEY_VAULT_URI=https://<server>-kv.vault.azure.net/ \
        DRIVE_WRITEBACK_DRY_RUN=true \
-       DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576
+       DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576 \
+       DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY="@Microsoft.KeyVault(SecretUri=https://<server>-kv.vault.azure.net/secrets/delete-confirmation-signing-key/)"
    ```
-   Leave `DRIVE_WRITEBACK_DRY_RUN=true` until you've confirmed writes behave as expected against the live tenant, then flip it to `false` (no code change needed — see `Program.cs`).
+   Leave `DRIVE_WRITEBACK_DRY_RUN=true` until you've confirmed writes behave as expected against the live tenant, then flip it to `false` (no code change needed — see `Program.cs`). Aside from the confirmation-signing-key reference, no other Key Vault-reference settings are used — the refresh token is read/written live via the Key Vault Secrets SDK (see `Auth/KeyVaultRefreshTokenStore.cs`). This also means the Function App's managed identity needs **Key Vault Secrets User** (read-only is enough here) in addition to the Secrets Officer grant from step 5, if not already covered by it.
 9. Application Insights — created and linked automatically by `az functionapp create`; no separate step needed.
 
 ## One-time bootstrap (seed the initial refresh token)
@@ -185,7 +200,7 @@ cd drive-writeback
 cp local.settings.json.example local.settings.json
 func start
 ```
-Copy the example first — `local.settings.json` is gitignored and won't exist otherwise, and `func start` fails immediately without one. Point the copy's `AzureWebJobsStorage` at the real storage account (or run Azurite) and set `DRIVE_WRITEBACK_TENANT_ID`/`CLIENT_ID`/`KEY_VAULT_URI`/`DRY_RUN`/`MAX_CONTENT_BYTES` to exercise the real Key Vault + Entra app from a local run, via your own `az login` session (`DefaultAzureCredential` picks it up automatically). Leave `DRIVE_WRITEBACK_DRY_RUN` at `true` for this first run — confirm `create_folder`/`create_file` resolve and validate correctly before ever flipping it to `false` against real data.
+Copy the example first — `local.settings.json` is gitignored and won't exist otherwise, and `func start` fails immediately without one. Point the copy's `AzureWebJobsStorage` at the real storage account (or run Azurite) and set `DRIVE_WRITEBACK_TENANT_ID`/`CLIENT_ID`/`KEY_VAULT_URI`/`DRY_RUN`/`MAX_CONTENT_BYTES`/`CONFIRMATION_SIGNING_KEY` to exercise the real Key Vault + Entra app from a local run, via your own `az login` session (`DefaultAzureCredential` picks it up automatically). `CONFIRMATION_SIGNING_KEY` doesn't have to be the same value as the deployed secret for a local smoke test — any base64 string works, e.g. `openssl rand -base64 32` (bash) or `[Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` (PowerShell). Leave `DRIVE_WRITEBACK_DRY_RUN` at `true` for this first run — confirm the write tools resolve and validate correctly before ever flipping it to `false` against real data.
 
 ## Not yet added: Easy Auth / boundary-7b Connector app
 

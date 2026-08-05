@@ -97,7 +97,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         var parent = ResolveRootItem(resolvedDriveId, parentPath);
         var newFolder = new DriveItem
         {
@@ -146,7 +146,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         if (segments.Length == 0)
             throw new ArgumentException("fullPath must contain at least one segment.", nameof(fullPath));
 
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         string? parentId = null;
         DriveItem? current = null;
 
@@ -235,7 +235,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
 
         return await client.Drives[resolvedDriveId].Items[itemId].GetAsync(cancellationToken: cancellationToken);
     }
@@ -289,7 +289,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
 
         return await ResolvePathItem(resolvedDriveId, path)
@@ -307,7 +307,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
 
         return await ResolvePathItem(resolvedDriveId, path).GetAsync(cancellationToken: cancellationToken);
     }
@@ -344,7 +344,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
 
         try
@@ -367,7 +367,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
 
         await ResolvePathItem(resolvedDriveId, path).DeleteAsync(cancellationToken: cancellationToken);
     }
@@ -390,7 +390,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
             return new FolderPathResolution(null, []);
 
         var segments = normalized.Split('/');
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         string? parentId = null;
         DriveItem? deepestExisting = null;
 
@@ -435,7 +435,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         if (conflictBehavior is not ("fail" or "rename" or "replace"))
             throw new ArgumentException($"conflictBehavior must be 'fail', 'rename', or 'replace' - got '{conflictBehavior}'.", nameof(conflictBehavior));
 
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         var (parentPath, name) = DrivePath.SplitParent(path);
 
         if (parentPath.Length > 0 && await TryGetItemByPathAsync(parentPath, resolvedDriveId, cancellationToken) is null)
@@ -506,7 +506,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
 
         try
@@ -555,7 +555,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
 
         return await PatchItemAsync(resolvedDriveId, itemId, new DriveItem { Name = newName }, cancellationToken);
     }
@@ -574,7 +574,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
         var destinationParent = await client.Drives[resolvedDriveId].Items[newParentId]
             .GetAsync(cancellationToken: cancellationToken)
             ?? throw new DriveParentNotFoundException(newParentId);
@@ -601,7 +601,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
 
         try
         {
@@ -618,6 +618,16 @@ public sealed class DriveGraphClient(GraphServiceClient client)
 
         return drive?.Id ?? throw new InvalidOperationException("Could not resolve the signed-in user's OneDrive id.");
     }
+
+    /// <summary>
+    /// Resolves the effective drive id every method above acts against: omitted, the
+    /// signed-in user's own OneDrive (never SharePoint, so no further check needed); supplied,
+    /// the given drive id as-is. Extracted so every call site shares one place to resolve
+    /// against, rather than repeating the `driveId ?? ResolveOwnDriveIdAsync` idiom - this
+    /// commit is a pure refactor with no behavior change.
+    /// </summary>
+    private async Task<string> ResolveDriveIdAsync(string? driveId, CancellationToken cancellationToken) =>
+        driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
 
     private DriveItemItemRequestBuilder ResolveRootItem(string driveId, string? path) =>
         string.IsNullOrEmpty(path)

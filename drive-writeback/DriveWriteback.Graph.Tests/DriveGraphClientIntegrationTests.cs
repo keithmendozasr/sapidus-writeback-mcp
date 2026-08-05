@@ -224,4 +224,29 @@ public class DriveGraphClientIntegrationTests
             Assert.That(resolution.Item?.Id, Is.EqualTo(itemId));
         });
     }
+
+    [Test]
+    public async Task RenameItemAsync_sends_a_PATCH_with_the_new_name()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+                Assert.That(request.RequestUri!.ToString(), Does.Contain("items/item-id"));
+            });
+
+            var body = await request.Content!.ReadAsStringAsync();
+            Assert.That(body, Does.Contain("\"name\":\"new-name.md\""));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id","name":"new-name.md"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var result = await CreateClient(handler).RenameItemAsync("item-id", "new-name.md", driveId: "drive-id");
+
+        Assert.That(result?.Name, Is.EqualTo("new-name.md"));
+    }
 }

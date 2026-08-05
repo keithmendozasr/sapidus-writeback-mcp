@@ -46,4 +46,41 @@ public class UpdateFileContentToolTests
             Assert.That(result, Does.Contain("Not written"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_real_mode_reports_id_size_and_new_etag()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"existing-id","eTag":"\"old-etag\""}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Headers.GetValues("If-Match").Single(), Is.EqualTo("\"old-etag\""));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"id":"existing-id","size":11,"eTag":"\"new-etag\""}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var tool = CreateTool(handler, options);
+
+        var result = await tool.RunAsync(null!, "notes.md", "new content", "\"old-etag\"", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain("updated"));
+            Assert.That(result, Does.Contain("existing-id"));
+            Assert.That(result, Does.Contain("11 bytes"));
+            Assert.That(result, Does.Contain("new-etag"));
+        });
+    }
 }

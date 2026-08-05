@@ -57,4 +57,37 @@ public class DriveItemDeletionServiceTests
             Assert.That(pending.ConfirmationToken, Is.Not.Null.And.Not.Empty);
         });
     }
+
+    [Test]
+    public void RequestDeletionAsync_throws_DriveItemNameMismatchException_when_expected_name_does_not_match()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+        }));
+
+        var (service, _) = CreateService(handler, DateTimeOffset.UtcNow);
+
+        Assert.That(
+            () => service.RequestDeletionAsync("notes.md", "a-different-name.md", recursive: false, driveId: "drive-id"),
+            Throws.InstanceOf<DriveItemNameMismatchException>());
+    }
+
+    [Test]
+    public void RequestDeletionAsync_throws_DriveFolderNotEmptyException_for_a_non_empty_folder_without_recursive()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"folder-id","name":"reports","folder":{"childCount":3}}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        var (service, _) = CreateService(handler, DateTimeOffset.UtcNow);
+
+        Assert.That(
+            () => service.RequestDeletionAsync("reports", "reports", recursive: false, driveId: "drive-id"),
+            Throws.InstanceOf<DriveFolderNotEmptyException>());
+    }
 }

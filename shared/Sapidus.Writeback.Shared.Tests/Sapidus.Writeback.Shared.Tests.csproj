@@ -20,4 +20,8 @@
     <Using Include="NUnit.Framework" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Sapidus.Writeback.Shared\Sapidus.Writeback.Shared.csproj" />
+  </ItemGroup>
+
 </Project>

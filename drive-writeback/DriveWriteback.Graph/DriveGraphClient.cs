@@ -470,6 +470,127 @@ public sealed class DriveGraphClient(GraphServiceClient client)
         throw new InvalidOperationException($"Could not find a non-colliding name for '{parentPath}/{name}' after 1000 attempts.");
     }
 
+    /// <summary>
+    /// Replaces an existing file's content by item id, requiring an If-Match tag - the
+    /// path_or_id-aware, id-preferring promotion of ReplaceTextContentAsync that
+    /// update_file_content actually calls. The service layer resolves path_or_id to an id
+    /// via GetItemAsync first; this method only ever acts by id, for the same
+    /// colon-path-is-unreliable-on-a-just-touched-item reason documented on
+    /// CreateFolderPathAsync.
+    /// </summary>
+    public async Task<DriveItem?> ReplaceContentByIdAsync(
+        string itemId,
+        string content,
+        string ifMatchTag,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
+
+        try
+        {
+            return await client.Drives[resolvedDriveId].Items[itemId]
+                .Content
+                .PutAsync(
+                    stream,
+                    requestConfiguration => requestConfiguration.Headers.TryAdd("If-Match", ifMatchTag),
+                    cancellationToken);
+        }
+        catch (ODataError error) when (error.ResponseStatusCode == 412)
+        {
+            throw new DriveItemConcurrencyException(itemId, ifMatchTag, error);
+        }
+    }
+
+    /// <summary>
+    /// Shared PATCH primitive backing RenameItemAsync and MoveItemAsync (PRD §4.4: "Both are
+    /// PATCH /drives/{drive-id}/items/{id} - rename sets name, move sets parentReference.id").
+    /// Id-based only, like every other mutating method here.
+    /// </summary>
+    private async Task<DriveItem?> PatchItemAsync(
+        string driveId,
+        string itemId,
+        DriveItem patch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await client.Drives[driveId].Items[itemId].PatchAsync(patch, cancellationToken: cancellationToken);
+        }
+        catch (ODataError error) when (error.ResponseStatusCode == 409)
+        {
+            throw new DriveItemAlreadyExistsException(patch.Name ?? itemId, error);
+        }
+    }
+
+    /// <summary>
+    /// Renames an item in place (PATCH { name }). Id-based - the service layer resolves
+    /// path_or_id to an id via GetItemAsync first.
+    /// </summary>
+    public async Task<DriveItem?> RenameItemAsync(
+        string itemId,
+        string newName,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+
+        return await PatchItemAsync(resolvedDriveId, itemId, new DriveItem { Name = newName }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Moves an item to a new parent within the same drive (PATCH { parentReference.id }).
+    /// PRD §4.4: move_item is same-drive-only - cross-drive moves require copy+delete, out of
+    /// scope (PRD §3, §11 Phase 4). Graph's own 404 on a foreign parent id is the primary
+    /// enforcement of that; the ParentReference.DriveId check below is defense-in-depth for the
+    /// narrower case where a resolved destination item reports a different owning drive than
+    /// the one this call was made under (e.g. a remote/shared item alias).
+    /// </summary>
+    public async Task<DriveItem?> MoveItemAsync(
+        string itemId,
+        string newParentId,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+        var destinationParent = await client.Drives[resolvedDriveId].Items[newParentId]
+            .GetAsync(cancellationToken: cancellationToken)
+            ?? throw new DriveParentNotFoundException(newParentId);
+
+        if (destinationParent.ParentReference?.DriveId is { } actualDriveId && actualDriveId != resolvedDriveId)
+            throw new DriveCrossDriveMoveException(resolvedDriveId, actualDriveId);
+
+        return await PatchItemAsync(
+            resolvedDriveId,
+            itemId,
+            new DriveItem { ParentReference = new ItemReference { Id = newParentId } },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes an item by id, moving it to the recycle bin (PRD §7/§9: never permanent delete).
+    /// A 404 is swallowed rather than thrown - PRD §7 idempotency requires delete_item on an
+    /// already-deleted item to return success, not error. The recursive/non-empty-folder guard
+    /// (PRD §4.4) is enforced one layer up in DriveItemDeletionService against the already-
+    /// resolved item's Folder.ChildCount, not here - this method stays a dumb Graph wrapper.
+    /// </summary>
+    public async Task DeleteItemByIdAsync(
+        string itemId,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var resolvedDriveId = driveId ?? await ResolveOwnDriveIdAsync(cancellationToken);
+
+        try
+        {
+            await client.Drives[resolvedDriveId].Items[itemId].DeleteAsync(cancellationToken: cancellationToken);
+        }
+        catch (ODataError error) when (error.ResponseStatusCode == 404)
+        {
+        }
+    }
+
     private async Task<string> ResolveOwnDriveIdAsync(CancellationToken cancellationToken)
     {
         var drive = await client.Me.Drive.GetAsync(cancellationToken: cancellationToken);
@@ -545,4 +666,40 @@ public sealed class DriveContentTooLargeException(long actualBytes, long maxByte
 {
     public long ActualBytes { get; } = actualBytes;
     public long MaxBytes { get; } = maxBytes;
+}
+
+/// <summary>
+/// Surfaced by move_item's defense-in-depth check when a resolved destination parent reports
+/// a ParentReference.DriveId different from the drive context the call was made under - Graph's
+/// own PATCH would 404 in the ordinary case; this catches the narrower remote/shared-item
+/// aliasing case before ever calling Graph. Cross-drive move itself is out of scope (PRD §3,
+/// §11 Phase 4) - this is a clear error, not an attempted copy+delete fallback.
+/// </summary>
+public sealed class DriveCrossDriveMoveException(string expectedDriveId, string actualDriveId)
+    : Exception($"Destination resolves to drive '{actualDriveId}', not the expected '{expectedDriveId}'. Cross-drive moves are not supported.")
+{
+    public string ExpectedDriveId { get; } = expectedDriveId;
+    public string ActualDriveId { get; } = actualDriveId;
+}
+
+/// <summary>
+/// Surfaced when delete_item targets a non-empty folder without recursive=true (PRD §4.4).
+/// </summary>
+public sealed class DriveFolderNotEmptyException(string itemName, int childCount)
+    : Exception($"'{itemName}' contains {childCount} item(s). Pass recursive=true to delete a non-empty folder.")
+{
+    public string ItemName { get; } = itemName;
+    public int ChildCount { get; } = childCount;
+}
+
+/// <summary>
+/// Surfaced when update_file_content/rename_item/move_item's path_or_id resolves to nothing -
+/// Phase 1's tools never needed this distinct case (create tools check existence pre-write or
+/// rely on Graph's own 404), but the mutation tools all resolve their target via GetItemAsync
+/// first and need a clear signal when that resolution comes back empty.
+/// </summary>
+public sealed class ItemNotFoundException(string pathOrId)
+    : Exception($"No item found at '{pathOrId}'.")
+{
+    public string PathOrId { get; } = pathOrId;
 }

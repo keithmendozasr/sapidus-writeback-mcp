@@ -27,6 +27,8 @@ Graph models OneDrive for Business and SharePoint document libraries under a sin
 
 All six must work against **both** the user's OneDrive and SharePoint document libraries in the tenant.
 
+**Deliberately not what's shipping right now:** the running server rejects SharePoint document library drives outright (`ResolveDriveIdAsync`, `DriveGraphClient.cs`) rather than operate against them without Phase 3's hardening in place — see the Phase 3 note in §11 and `drive-writeback/CLAUDE.md`'s Status section. This goal stays the target for when Phase 3 lands; it does not describe the current deployment.
+
 ## 3. Non-goals (v1)
 
 - Resumable/chunked uploads for files > 4 MB.
@@ -294,7 +296,7 @@ Unchanged from `outlook-writeback`:
 `update_file_content`, `rename_item`, `move_item`, `delete_item`. **Implemented, pending deployment.** All 12 E2E tests (the 3 original Phase 0 spikes plus 9 added across Phase 1/2) now pass against a live tenant, including the new Phase 2 round trips: `rename_item`, `move_item`, delete-idempotency, the `update_file_content` dry-run/real round trip, and the full `delete_item` preview-then-confirm confirmation flow through `DriveItemDeletionService`.
 
 **Phase 3 — SharePoint hardening**
-Check-out/check-in handling, required-column detection, draft-state warnings, version reporting in the audit log.
+Check-out/check-in handling, required-column detection, draft-state warnings, version reporting in the audit log. **Not started, and until it lands, the server actively rejects SharePoint document library drives** (`ResolveDriveIdAsync` in `DriveGraphClient.cs`, `SharePointDriveNotSupportedException`) rather than operate against them with none of this hardening in place — a deliberate scope decision, not silent neglect. See `drive-writeback/CLAUDE.md`'s Status section for current state.
 
 **Phase 4 — Deferred**
 `copy_item` (async, 202 + monitor URL polling), binary/base64 content, upload-from-URL, resumable upload sessions, restore-from-recycle-bin, cross-drive move.
@@ -317,11 +319,11 @@ Check-out/check-in handling, required-column detection, draft-state warnings, ve
 
 ## 13. Success criteria
 
-- All six use cases executable end-to-end from Claude Desktop against both OneDrive and at least one SharePoint library on the live tenant.
+- All six use cases executable end-to-end from Claude Desktop against both OneDrive and at least one SharePoint library on the live tenant. **Currently OneDrive-only by deliberate choice** — see the Phase 3 note in §11; the SharePoint half of this criterion is deferred along with Phase 3, not a live gap.
 - No writes possible beyond what the signed-in account's own Graph permissions allow (§9) — enforcement is Graph's ACL, not an app-level list; verified by test that a write to an inaccessible drive/site fails with Graph's own 403/404, not a silent success.
 - No path to permanent data loss without an explicit user confirmation turn.
-- Required-column and check-out draft states detected and reported, never silently reported as success.
-- Every mutation reconstructable from the audit log, including SharePoint version numbers.
+- Required-column and check-out draft states detected and reported, never silently reported as success. **Moot for now** — SharePoint drives are rejected before any such write is attempted (§11 Phase 3).
+- Every mutation reconstructable from the audit log, including SharePoint version numbers. **SharePoint version numbers specifically deferred to Phase 3**, same reasoning.
 - Full `Microsoft.Graph` SDK, Native AOT dropped — see §10.
 
 ---

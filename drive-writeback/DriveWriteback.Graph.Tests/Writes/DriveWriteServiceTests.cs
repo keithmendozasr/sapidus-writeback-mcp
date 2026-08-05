@@ -229,4 +229,61 @@ public class DriveWriteServiceTests
             Assert.That(result.Item?.ETag, Is.EqualTo("\"new-etag\""));
         });
     }
+
+    [Test]
+    public async Task RenameItemAsync_dry_run_resolves_the_target_and_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","name":"old-name.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.RenameItemAsync("old-name.md", "new-name.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.True);
+            Assert.That(result.NewName, Is.EqualTo("new-name.md"));
+            Assert.That(result.Item?.Id, Is.EqualTo("existing-id"));
+        });
+    }
+
+    [Test]
+    public async Task RenameItemAsync_real_mode_resolves_then_sends_a_PATCH()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"existing-id","name":"old-name.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","name":"new-name.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.RenameItemAsync("old-name.md", "new-name.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.Item?.Name, Is.EqualTo("new-name.md"));
+        });
+    }
 }

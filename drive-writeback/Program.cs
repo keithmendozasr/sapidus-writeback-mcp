@@ -7,7 +7,9 @@ using Microsoft.Extensions.Hosting;
 using DriveWriteback.Auth;
 using DriveWriteback.Graph;
 using DriveWriteback.Graph.Auth;
+using DriveWriteback.Graph.Confirmation;
 using DriveWriteback.Graph.Writes;
+using Sapidus.Writeback.Shared.Confirmation;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -33,6 +35,9 @@ var maxContentBytes = long.TryParse(Environment.GetEnvironmentVariable("DRIVE_WR
     ? configuredMaxContentBytes
     : 1_048_576;
 
+var confirmationSigningKey = Environment.GetEnvironmentVariable("DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY")
+    ?? throw new InvalidOperationException("DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY is not set.");
+
 builder.Services.AddSingleton<IRefreshTokenStore>(_ =>
     new KeyVaultRefreshTokenStore(new SecretClient(new Uri(keyVaultUri), new DefaultAzureCredential())));
 
@@ -44,5 +49,12 @@ builder.Services.AddSingleton(sp => DriveGraphClient.CreateWithSilentRefreshAuth
 
 builder.Services.AddSingleton(new DriveWriteOptions(dryRun, maxContentBytes));
 builder.Services.AddSingleton<DriveWriteService>();
+
+builder.Services.AddSingleton(new ConfirmationTokenService(Convert.FromBase64String(confirmationSigningKey)));
+
+builder.Services.AddSingleton(sp => new DriveItemDeletionService(
+    sp.GetRequiredService<DriveGraphClient>(),
+    sp.GetRequiredService<DriveWriteService>(),
+    sp.GetRequiredService<ConfirmationTokenService>()));
 
 builder.Build().Run();

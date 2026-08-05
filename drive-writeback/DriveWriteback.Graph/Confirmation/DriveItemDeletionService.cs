@@ -55,7 +55,7 @@ public sealed class DriveItemDeletionService(
         if (!tokenService.Validate(itemId, confirmationToken))
             return ConfirmedItemDeletion.InvalidToken;
 
-        var item = await client.GetItemByIdAsync(itemId, driveId, cancellationToken);
+        var item = await client.TryGetItemByIdAsync(itemId, driveId, cancellationToken);
 
         if (item is null)
             return ConfirmedItemDeletion.Deleted; // PRD §7: already-deleted is success.

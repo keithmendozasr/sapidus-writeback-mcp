@@ -241,6 +241,27 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     }
 
     /// <summary>
+    /// Wraps GetItemByIdAsync, returning null on a 404 instead of throwing - the same
+    /// existence-check shape TryGetItemByPathAsync provides for paths. delete_item's confirm
+    /// step needs this to treat an already-deleted item as success (PRD §7 idempotency)
+    /// rather than letting the 404 propagate as an error.
+    /// </summary>
+    public async Task<DriveItem?> TryGetItemByIdAsync(
+        string itemId,
+        string? driveId = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await GetItemByIdAsync(itemId, driveId, cancellationToken);
+        }
+        catch (ODataError error) when (error.ResponseStatusCode == 404)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// The path-vs-ID discriminator wrapper get_item needs (PRD §5): decides which of
     /// GetItemByIdAsync/GetItemByPathAsync to call using DrivePath.LooksLikeItemId, and
     /// reports which interpretation it used so a misclassification is visible to the

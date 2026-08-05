@@ -20,4 +20,30 @@ public class ConfirmationTokenServiceTests
 
         Assert.That(service.Validate("fake-resource-id", token), Is.True);
     }
+
+    [Test]
+    public void Validate_rejects_a_token_issued_for_a_different_resource_id()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        var token = service.Issue("fake-resource-id");
+
+        Assert.That(service.Validate("a-different-resource-id", token), Is.False);
+    }
+
+    [Test]
+    public void Validate_rejects_a_token_signed_with_a_different_key()
+    {
+        var issuingService = new ConfirmationTokenService(
+            Encoding.UTF8.GetBytes("key-one"),
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var validatingService = new ConfirmationTokenService(
+            Encoding.UTF8.GetBytes("key-two"),
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var token = issuingService.Issue("fake-resource-id");
+
+        Assert.That(validatingService.Validate("fake-resource-id", token), Is.False);
+    }
 }

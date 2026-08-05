@@ -306,4 +306,42 @@ public class DriveGraphClientIntegrationTests
             () => CreateClient(handler).MoveItemAsync("item-id", "new-parent-id", driveId: "drive-id"),
             Throws.InstanceOf<DriveCrossDriveMoveException>());
     }
+
+    [Test]
+    public void DeleteItemByIdAsync_swallows_a_404_as_success()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent(
+                """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        // PRD §7 idempotency: deleting an already-deleted item must not surface as an error.
+        Assert.That(
+            async () => await CreateClient(handler).DeleteItemByIdAsync("item-id", driveId: "drive-id"),
+            Throws.Nothing);
+    }
+
+    [Test]
+    public void ReplaceContentByIdAsync_throws_DriveItemConcurrencyException_on_a_stubbed_412()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.That(request.Headers.GetValues("If-Match").Single(), Is.EqualTo("stale-etag"));
+
+            return Task.FromResult(new HttpResponseMessage((HttpStatusCode)412)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"resourceModified","message":"eTag does not match current value"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+
+        Assert.That(
+            () => CreateClient(handler).ReplaceContentByIdAsync("item-id", "new content", "stale-etag", driveId: "drive-id"),
+            Throws.InstanceOf<DriveItemConcurrencyException>());
+    }
 }

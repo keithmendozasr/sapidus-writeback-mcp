@@ -22,16 +22,18 @@ public class DriveItemDeletionServiceTests
     private static (DriveItemDeletionService Service, ConfirmationTokenService TokenService) CreateService(
         StubHttpMessageHandler handler,
         DateTimeOffset now,
-        bool dryRun = false)
+        bool dryRun = false,
+        ConfirmationTokenService? tokenService = null)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
         var graphClient = new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider());
         var client = new DriveGraphClient(graphClient);
         var options = new DriveWriteOptions(DryRun: dryRun, MaxContentBytes: 1_048_576);
         var writeService = new DriveWriteService(client, options, new RecordingLogger<DriveWriteService>());
-        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var resolvedTokenService = tokenService
+            ?? new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
 
-        return (new DriveItemDeletionService(client, writeService, tokenService), tokenService);
+        return (new DriveItemDeletionService(client, writeService, resolvedTokenService), resolvedTokenService);
     }
 
     [Test]
@@ -89,5 +91,52 @@ public class DriveItemDeletionServiceTests
         Assert.That(
             () => service.RequestDeletionAsync("reports", "reports", recursive: false, driveId: "drive-id"),
             Throws.InstanceOf<DriveFolderNotEmptyException>());
+    }
+
+    [Test]
+    public async Task ConfirmDeletionAsync_deletes_when_the_token_is_valid_for_the_same_item()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var token = tokenService.Issue("item-id");
+
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                // ConfirmDeletionAsync's own re-fetch, used to re-check expected_name/recursive.
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Delete));
+                Assert.That(request.RequestUri!.ToString(), Does.Contain("items/item-id"));
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+
+        var (service, _) = CreateService(handler, now, tokenService: tokenService);
+
+        var confirmed = await service.ConfirmDeletionAsync("item-id", token, "notes.md", recursive: false, driveId: "drive-id");
+
+        Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.Deleted));
+    }
+
+    [Test]
+    public async Task ConfirmDeletionAsync_does_not_call_Graph_when_the_token_is_invalid()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Graph must not be called when the confirmation token fails validation."));
+
+        var (service, _) = CreateService(handler, DateTimeOffset.UtcNow);
+
+        var confirmed = await service.ConfirmDeletionAsync("item-id", "not-a-valid-token", "notes.md", recursive: false, driveId: "drive-id");
+
+        Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.InvalidToken));
     }
 }

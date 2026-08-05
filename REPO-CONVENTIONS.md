@@ -24,7 +24,7 @@ The repo is one codebase for developer convenience. It is deliberately **not** o
 ```
 sapidus-writeback-mcp/
 ├── REPO-CONVENTIONS.md          # this file
-├── shared/                       # 7b transport/auth code ONLY — see §4
+├── shared/                       # capability-agnostic code only — 7b transport/auth, plus generic non-Graph primitives — see §4
 ├── outlook-writeback/
 │   ├── CLAUDE.md                 # build/test commands, runtime specifics for this server
 │   ├── docs/
@@ -73,16 +73,21 @@ Naming stays traceable end-to-end: folder name → resource group → Function A
 
 ## 4. What's allowed in `shared/`
 
-`shared/` is for code that is genuinely capability-agnostic — concretely, the Claude-to-MCP-server auth/transport layer (what each server's PRD calls "boundary 7b": the bearer token or self-issued OAuth 2.1 layer that decides *who's allowed to call this server's tools*, as opposed to *what the server is allowed to do in Graph*).
+`shared/` is for code that is genuinely capability-agnostic. Two categories qualify so far:
+
+1. **The Claude-to-MCP-server auth/transport layer** (what each server's PRD calls "boundary 7b": the bearer token or self-issued OAuth 2.1 layer that decides *who's allowed to call this server's tools*, as opposed to *what the server is allowed to do in Graph*).
+2. **Generic, non-Graph safety primitives with no server identity baked in.** `Sapidus.Writeback.Shared/Confirmation/ConfirmationTokenService.cs` is the first example: a stateless, HMAC-signed, TTL'd token that gates a destructive tool's second, confirming call (`outlook-writeback`'s `delete_event` originated the pattern; `drive-writeback`'s `delete_item` reuses the identical mechanism via this shared type). It's generic over an opaque resource-id string — it never calls Graph, never references a Graph model or a specific server's business rules, and each server still supplies its own signing key from its own Key Vault secret. See below for why this is a different case from boundary-7a, which looks similarly shareable but isn't.
 
 **Never allowed in `shared/`:**
 - Graph client secrets, certificates, or tokens for any specific server
 - Business logic specific to one server's tools (drafting, calendar math, etc.)
 - Anything that would require one server's Key Vault access to reach another server's secrets
 
-If it's unclear whether something belongs in `shared/`, the test is: *would this code need to change if a new server's Graph scopes changed?* If yes, it's server-specific, not shared.
+If it's unclear whether something belongs in `shared/`, the test is: *would this code need to change if a new server's Graph scopes changed?* If yes, it's server-specific, not shared. This test is necessary but not sufficient on its own — see the boundary-7a case below, which passes it yet is still kept local.
 
 **Boundary-7a auth code (redeem-refresh-token / cache-access-token / rotate-refresh-token) is a specific case that looks shareable but isn't extracted.** It's fully parameterized (tenant, client, scopes, token store all passed in) and holds no server identity or secret material itself — but sharing it would couple every server's Graph-auth failures and changes together, which is exactly what §1's "independently deployable, independently revocable" is meant to prevent. It also isn't purely mechanical forever: a scope needing `Sites.Selected`-style access requires application (client-credentials) auth instead of delegated refresh-token auth, a structurally different flow. Duplication cost is accepted deliberately here, not an oversight.
+
+**Why `ConfirmationTokenService` (category 2 above) is a different case, not a second instance of the same mistake:** the distinguishing question isn't parameterization — both pass that test — it's whether the code touches Graph or credentials at all. Boundary-7a code does, by definition, so extracting it would still couple servers' Graph-auth blast radius even though each call is parameterized per-server. `ConfirmationTokenService` never touches Graph, a Graph model, or a credential of any kind — it signs an opaque string and a timestamp. A bug in it fails closed (blocks a delete) rather than leaking one server's Graph access into another's, so the specific coupling risk §1 protects against doesn't transfer. Test infrastructure used only by test projects (e.g. a fake `TimeProvider`) is a separate, easier case still: it carries no deployment or blast-radius risk at all, but this repo's existing convention duplicates it per-server anyway (`StubHttpMessageHandler`, `RecordingLogger`, and `FakeRefreshTokenStore` are each already copied rather than shared) — that convention is left as-is, not changed by this section.
 
 ## 5. Entra App Registration naming
 
@@ -120,7 +125,7 @@ This keeps the family visible as one rollup in Azure Cost Management even though
 5. Create `<server-name>-rg` resource group and `<server-name>-func` Function App.
 6. Create new Key Vault secrets for this server's Graph credentials — do not reuse another server's Key Vault entries.
 7. Tag all new resources `project: sapidus-writeback-mcp`.
-8. Only pull code into `shared/` if it's genuinely capability-agnostic transport/auth code per §4 — default to keeping new logic in the server's own folder.
+8. Only pull code into `shared/` if it's genuinely capability-agnostic per §4 (7b transport/auth, or a generic non-Graph safety primitive with no server identity baked in) — default to keeping new logic in the server's own folder.
 9. Once the server has a boundary-7b Connector app (multi-client OAuth via Easy Auth + Entra ID — see that server's own `DEPLOYMENT.md`), set **"Assignment required" = Yes** on its Enterprise Application object and assign only the intended user(s). Entra allows any tenant user to sign in to an app registration by default once it exists; since Graph calls run under a single seeded server-app refresh token rather than per-caller delegation, an unrestricted Connector app would let any tenant user drive the server with the owner's own Graph access. Confirmed working on Entra ID Free (individual user assignment, not group-based, needs no P1/P2 upgrade).
 
 ## 9. MCP protocol and architecture decisions must be agent-agnostic

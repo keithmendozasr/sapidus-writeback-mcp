@@ -216,4 +216,81 @@ public class DriveGraphClientE2ETests
             await _client!.DeleteItemAsync(path);
         }
     }
+
+    /// <summary>
+    /// Phase 2: RenameItemAsync against a real, freshly-created file. Renames by id, then
+    /// verifies the new name by re-fetching by id (not by re-deriving a colon-path from the
+    /// new name - same colon-path-on-a-just-touched-item caution as everywhere else in this
+    /// codebase). Self-skips like every other test in this fixture; unrun as of this commit.
+    /// </summary>
+    [Test]
+    public async Task RenameItemAsync_renames_a_freshly_created_file()
+    {
+        var originalPath = $"phase2-spike-rename-{Guid.NewGuid():N}.txt";
+        var newName = $"phase2-spike-renamed-{Guid.NewGuid():N}.txt";
+
+        try
+        {
+            var created = await _client!.UploadTextContentAsync(originalPath, "v1");
+
+            var renamed = await _client.RenameItemAsync(created!.Id!, newName);
+            Assert.That(renamed?.Name, Is.EqualTo(newName));
+
+            var resolved = await _client.GetItemByIdAsync(created.Id!);
+            Assert.That(resolved?.Name, Is.EqualTo(newName));
+        }
+        finally
+        {
+            // Root-level path, so the item's current name (post-rename) is the deletable path.
+            await _client!.DeleteItemAsync(newName);
+        }
+    }
+
+    /// <summary>
+    /// Phase 2: MoveItemAsync against real, freshly-created folders. A single spike root
+    /// contains both "source" and "destination" subfolders so one recursive delete of the
+    /// root cleans up everything created here, regardless of where the moved file ends up.
+    /// Self-skips like every other test in this fixture; unrun as of this commit.
+    /// </summary>
+    [Test]
+    public async Task MoveItemAsync_moves_a_freshly_created_file_into_a_new_folder()
+    {
+        var spikeRoot = $"phase2-spike-move-{Guid.NewGuid():N}";
+
+        try
+        {
+            var sourceFolder = await _client!.CreateFolderPathAsync($"{spikeRoot}/source");
+            var destinationFolder = await _client.CreateFolderPathAsync($"{spikeRoot}/destination");
+            var file = await _client.UploadTextContentAsync($"{spikeRoot}/source/notes.txt", "v1");
+
+            var moved = await _client.MoveItemAsync(file!.Id!, destinationFolder!.Id!);
+            Assert.That(moved?.ParentReference?.Id, Is.EqualTo(destinationFolder.Id));
+
+            var resolved = await _client.GetItemByIdAsync(file.Id!);
+            Assert.That(resolved?.ParentReference?.Id, Is.EqualTo(destinationFolder.Id), "the move must be visible on a fresh re-fetch, not just in the PATCH response.");
+        }
+        finally
+        {
+            await _client!.DeleteItemAsync(spikeRoot);
+        }
+    }
+
+    /// <summary>
+    /// PRD §7 idempotency: DeleteItemByIdAsync on an item already deleted must swallow the
+    /// 404 and return, not throw. Self-skips like every other test in this fixture; unrun as
+    /// of this commit.
+    /// </summary>
+    [Test]
+    public async Task DeleteItemByIdAsync_is_idempotent_on_an_already_deleted_item()
+    {
+        var path = $"phase2-spike-delete-idempotent-{Guid.NewGuid():N}.txt";
+        var created = await _client!.UploadTextContentAsync(path, "v1");
+
+        await _client.DeleteItemByIdAsync(created!.Id!);
+
+        Assert.That(
+            async () => await _client.DeleteItemByIdAsync(created.Id!),
+            Throws.Nothing,
+            "deleting an already-deleted item must succeed, not throw.");
+    }
 }

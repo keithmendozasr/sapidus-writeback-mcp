@@ -139,4 +139,52 @@ public class DriveItemDeletionServiceTests
 
         Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.InvalidToken));
     }
+
+    [Test]
+    public async Task ConfirmDeletionAsync_returns_Deleted_when_the_item_is_already_gone()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var token = tokenService.Issue("item-id");
+
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent(
+                """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        var (service, _) = CreateService(handler, now, tokenService: tokenService);
+
+        // PRD §7 idempotency: confirming a delete for an item already gone must not error.
+        var confirmed = await service.ConfirmDeletionAsync("item-id", token, "notes.md", recursive: false, driveId: "drive-id");
+
+        Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.Deleted));
+    }
+
+    [Test]
+    public async Task ConfirmDeletionAsync_returns_DryRun_and_makes_no_DELETE_call_when_dry_run_is_on()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var token = tokenService.Issue("item-id");
+
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+
+        var (service, _) = CreateService(handler, now, dryRun: true, tokenService: tokenService);
+
+        var confirmed = await service.ConfirmDeletionAsync("item-id", token, "notes.md", recursive: false, driveId: "drive-id");
+
+        Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.DryRun));
+    }
 }

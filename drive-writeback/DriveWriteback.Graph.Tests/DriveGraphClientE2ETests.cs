@@ -47,9 +47,18 @@ public class DriveGraphClientE2ETests
     /// CreateFileAsync (§1) does NOT gate on this test's outcome - it pre-checks existence
     /// via TryGetItemByPathAsync and applies conflict_behavior client-side regardless, which
     /// is correct whether or not Graph honors the query parameter. This is a recorded
-    /// observation, not a prerequisite - and as of this commit it has never been run against
-    /// a live tenant (no browser session available in this implementation pass). Write the
-    /// finding back to docs/active/PRD-drive-write.md §11 once someone does run it.
+    /// observation, not a prerequisite.
+    ///
+    /// RESOLVED against a live tenant: Graph DOES honor the raw query parameter and 409s.
+    /// The first live run of this test failed with an uncaught
+    /// Microsoft.Kiota.Abstractions.ApiException ("no error factory is registered for this
+    /// code: 409") rather than the expected ODataError - this raw, manually-injected-query-
+    /// string request has no 409 error factory registered on its RequestInformation, so Kiota
+    /// falls back to the bare ApiException base type instead of the richer ODataError
+    /// subtype. The 409 itself is exactly the finding this probe exists to observe; only the
+    /// catch clause's exception type was wrong. Catching ApiException (ODataError's own base
+    /// type) fixes this while still catching ODataError too, if a future SDK version ever
+    /// does register a factory here.
     /// </summary>
     [Test]
     public async Task ContentPut_conflictBehavior_query_parameter_is_an_open_question()
@@ -77,7 +86,7 @@ public class DriveGraphClientE2ETests
                 TestContext.Out.WriteLine(
                     "Phase 1 §1 finding: PUT .../content did NOT honor @microsoft.graph.conflictBehavior=fail - it overwrote instead of 409ing.");
             }
-            catch (Microsoft.Graph.Models.ODataErrors.ODataError error) when (error.ResponseStatusCode == 409)
+            catch (Microsoft.Kiota.Abstractions.ApiException error) when (error.ResponseStatusCode == 409)
             {
                 TestContext.Out.WriteLine(
                     "Phase 1 §1 finding: PUT .../content DOES honor @microsoft.graph.conflictBehavior=fail - it 409'd as expected.");

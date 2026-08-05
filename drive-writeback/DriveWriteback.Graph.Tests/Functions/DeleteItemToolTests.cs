@@ -54,4 +54,44 @@ public class DeleteItemToolTests
             Assert.That(result, Does.Contain("NOT been deleted yet"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_with_a_valid_token_deletes()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var token = tokenService.Issue("item-id");
+
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Delete));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+        var (tool, _) = CreateTool(handler, now, tokenService);
+
+        var result = await tool.RunAsync(null!, "item-id", "notes.md", recursive: null, confirmationToken: token, driveId: "drive-id");
+
+        Assert.That(result, Does.Contain("deleted"));
+    }
+
+    [Test]
+    public async Task RunAsync_with_an_invalid_token_reports_invalid_or_expired()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Graph must not be called when the confirmation token fails validation."));
+        var (tool, _) = CreateTool(handler, DateTimeOffset.UtcNow);
+
+        var result = await tool.RunAsync(null!, "item-id", "notes.md", recursive: null, confirmationToken: "not-a-valid-token", driveId: "drive-id");
+
+        Assert.That(result, Does.Contain("invalid or expired"));
+    }
 }

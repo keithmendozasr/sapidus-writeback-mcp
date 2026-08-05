@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/shared/">
+    <Project Path="shared/Sapidus.Writeback.Shared.Tests/Sapidus.Writeback.Shared.Tests.csproj" />
+  </Folder>
   <Folder Name="/outlook-writeback/">
     <Project Path="outlook-writeback/OutlookWriteback.Graph.Tests/OutlookWriteback.Graph.Tests.csproj" />
     <Project Path="outlook-writeback/OutlookWriteback.Graph/OutlookWriteback.Graph.csproj" />

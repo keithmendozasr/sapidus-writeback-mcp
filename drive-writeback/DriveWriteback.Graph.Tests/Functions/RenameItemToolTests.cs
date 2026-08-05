@@ -47,4 +47,36 @@ public class RenameItemToolTests
             Assert.That(result, Does.Contain("Not renamed"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_real_mode_reports_the_rename_and_the_item_id()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"existing-id","name":"old-name.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","name":"new-name.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var tool = CreateTool(handler, options);
+
+        var result = await tool.RunAsync(null!, "old-name.md", "new-name.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain("renamed to \"new-name.md\""));
+            Assert.That(result, Does.Contain("existing-id"));
+        });
+    }
 }

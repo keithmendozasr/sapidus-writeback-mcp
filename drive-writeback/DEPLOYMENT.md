@@ -4,7 +4,7 @@ Checklist of `az` commands to provision this server, kept as a runbook rather th
 
 **This is meant to work as a full disaster-recovery runbook.** Angle-bracket values (`<tenant-id>`, `<client-id>`, `<sub-id>`, etc.) are placeholders for values specific to your own deployment — substitute your own tenant/subscription IDs as you go. `<server>` stands for this server's folder name (`drive-writeback`), written generically the same way `outlook-writeback/DEPLOYMENT.md` is, so this doc reads correctly whether you're standing this up in the original deployment tenant or your own tenant on a fresh OSS deployment.
 
-**Phase 1 code is implemented; none of the infrastructure below has been provisioned yet.** The Functions host project, `DriveWriteback.Bootstrap`, and their runbook sections now exist (this doc's "Resources provisioned" section onward), but no resource group, Function App, or Key Vault has actually been created — implementing Phase 1's code, tests, and this runbook was explicitly in scope for that pass; running `az`/`func` commands against a real subscription was explicitly not (see `drive-writeback/CLAUDE.md`'s Status section). You run each section below yourself when you're ready to stand this up.
+**Phases 1 and 2 are implemented and deployed.** The resource group, storage account, Key Vault, and Function App below all exist in Azure, and boundary-7b (Easy Auth + the "Drive Writeback MCP Connector" Entra app, serving Claude Desktop and claude.ai) is live too — see the "Multi-client OAuth via Easy Auth + Entra ID" section below. This doc remains the disaster-recovery runbook: if any of it were deleted, following every section below top to bottom reproduces it.
 
 **This doc is the single source of truth for provisioning/rebuilding this server** — same posture as `outlook-writeback/DEPLOYMENT.md`, no separate wrapper script. (An earlier revision of this doc pointed at `scripts/Register-EntraApp.ps1` for repeatable execution; that script had a real bug — see the admin-consent note in step 5 below — and rather than fix a second copy of this logic to maintain in lockstep with the doc, it's been removed. Hand-typing six `az` commands on the rare occasion this needs re-running is cheaper than keeping a script in sync.)
 
@@ -79,7 +79,7 @@ Run `dotnet test --filter Category=E2E` from the repo root with those two set �
 
 ---
 
-**Everything below this line is Phase 1 runbook text — none of it has been executed as part of this implementation pass.** Per that pass's scope boundary (code, tests, and this runbook only), no `az`/`func` commands were run and no live Azure resources were provisioned; you run each section below yourself once the code is ready. The one-time interactive Bootstrap sign-in also needs your own browser session, so it can't happen in an implementation pass regardless.
+**Everything below this line has been executed against the real deployment** (resource group, storage account, Key Vault, Function App, boundary-7a app, boundary-7b Connector app, Easy Auth). Kept as runbook text for disaster recovery — re-run a section only if its resource needs to be rebuilt from scratch.
 
 ## Resources provisioned (in order)
 
@@ -202,6 +202,79 @@ func start
 ```
 Copy the example first — `local.settings.json` is gitignored and won't exist otherwise, and `func start` fails immediately without one. Point the copy's `AzureWebJobsStorage` at the real storage account (or run Azurite) and set `DRIVE_WRITEBACK_TENANT_ID`/`CLIENT_ID`/`KEY_VAULT_URI`/`DRY_RUN`/`MAX_CONTENT_BYTES`/`CONFIRMATION_SIGNING_KEY` to exercise the real Key Vault + Entra app from a local run, via your own `az login` session (`DefaultAzureCredential` picks it up automatically). `CONFIRMATION_SIGNING_KEY` doesn't have to be the same value as the deployed secret for a local smoke test — any base64 string works, e.g. `openssl rand -base64 32` (bash) or `[Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))` (PowerShell). Leave `DRIVE_WRITEBACK_DRY_RUN` at `true` for this first run — confirm the write tools resolve and validate correctly before ever flipping it to `false` against real data.
 
-## Not yet added: Easy Auth / boundary-7b Connector app
+**This is now the standard dev-loop path, not just a first-run check.** This server has no CLI registration against the deployed Function App (see "Multi-client OAuth" below for why) — iterate locally against `func start` + Azurite/the real storage account instead of round-tripping through a deployed CLI connection.
 
-Deliberately absent from this doc, same "append once actually needed" posture the doc already states for itself above. Phase 1 has no boundary-7b Connector app and no Easy Auth — `host.json` correspondingly omits `system.webhookAuthorizationLevel: "Anonymous"` (see that file's own comment history / the commit that added it): relaxing that setting is only safe once Easy Auth is in front of it, per the finding already documented in `outlook-writeback/DEPLOYMENT.md`'s multi-client OAuth section. Until boundary-7b lands here, the MCP extension's own system-key check is the only gate — mirror `outlook-writeback/DEPLOYMENT.md`'s "Wire up Claude Code CLI via system key" section (`az functionapp keys list ... systemKeys.mcp_extension`, `claude mcp add ... --header "x-functions-key: <key>"`) as the interim path, and build out the full multi-client OAuth section here (mirroring that same doc) once this server needs multiple callers.
+## Multi-client OAuth via Easy Auth + Entra ID
+
+This is the boundary-7b auth path for this server, serving Claude Desktop and claude.ai. Unlike `outlook-writeback`, this server has **no CLI registration** — Claude Code CLI is not wired up against the deployed Function App at all; local iteration goes through `func start` + Azurite instead (see "Local smoke test" above). If a future need arises to add the CLI back, mirror `outlook-writeback/DEPLOYMENT.md`'s CLI section against the same Connector app below (its `publicClient.redirectUris` are simply unset here today).
+
+### `host.json`: Easy Auth is the sole gate
+
+`host.json` sets `extensions.mcp.system.webhookAuthorizationLevel: "Anonymous"` — required once Easy Auth requires authentication, since the MCP extension's own separate `mcp_extension` system-key check would otherwise 403 a valid Easy-Auth-validated bearer token underneath it. Only the `host.json` literal has any effect (the app-setting equivalent doesn't, per `outlook-writeback/DEPLOYMENT.md`'s note on this same gotcha) — republish via `func azure functionapp publish` after any change here. Once this setting is live, the system key stops providing any real protection on its own; Easy Auth is the only enforcing layer.
+
+### Boundary-7b Entra app: "Drive Writeback MCP Connector"
+
+Separate from "Drive Writeback MCP" (boundary 7a, Graph delegation, registered above) — this one represents the MCP server's own audience for Claude-side OAuth:
+```
+az ad app create --display-name "Drive Writeback MCP Connector" --sign-in-audience AzureADMyOrg --output json
+```
+Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>`:
+
+1. `{"api": {"requestedAccessTokenVersion": 2}}` **first**, before `identifierUris` — Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy` otherwise.
+2. `identifierUris` to both `https://drive-writeback-func.azurewebsites.net` and `.../runtime/webhooks/mcp` — the MCP extension resource-checks against the full route, not just the host.
+3. An "Expose an API" scope: `{"api": {"oauth2PermissionScopes": [{"type": "User", "value": "access_as_user", "isEnabled": true, "id": "<new-guid>", "adminConsentDisplayName": "...", "adminConsentDescription": "...", "userConsentDisplayName": "...", "userConsentDescription": "..."}]}}`.
+4. `web.redirectUris: ["https://claude.ai/api/mcp/auth_callback"]` — required for both Desktop/Cowork and claude.ai's connector UI, which both present a client secret at token exchange (confidential client, hence `web`, not `publicClient`).
+
+No `publicClient.redirectUris` entry — that's only needed if the CLI is ever wired up against this app, which it currently isn't.
+
+### Client secret
+
+```
+az ad app credential reset --id <connector-app-id> --append --display-name "drive-writeback-connector-secret" --years 1 --output json
+```
+Store the resulting `password` as the `drive-writeback-connector-secret` Key Vault secret, referenced from a `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` app setting via `@Microsoft.KeyVault(SecretUri=...)` — same pattern as `DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY`. This secret is for Easy Auth's own server-side token exchange (and for pasting into Claude Desktop's/claude.ai's connector setup, which need it directly since Entra has no dynamic client registration) — it is not a CLI secret, since no CLI is registered against this app.
+
+Also set `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user` — without it, the `401` response's `WWW-Authenticate` header comes back bare (no `scope`, no `resource_metadata`), breaking RFC 9728 discovery for any client relying on that header rather than probing the PRM endpoint directly.
+
+### `authsettingsV2` via ARM REST PUT
+
+`az webapp auth update` fails on an app already on auth v1 (`Cannot use auth v2 commands when the app is using auth v1`) — go straight to the ARM REST PUT:
+```
+az rest --method PUT \
+  --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/drive-writeback-rg/providers/Microsoft.Web/sites/drive-writeback-func/config/authsettingsV2?api-version=2022-03-01" \
+  --body '{
+    "properties": {
+      "platform": { "enabled": true },
+      "globalValidation": { "requireAuthentication": true, "unauthenticatedClientAction": "Return401" },
+      "identityProviders": {
+        "azureActiveDirectory": {
+          "enabled": true,
+          "registration": {
+            "clientId": "<connector-app-id>",
+            "clientSecretSettingName": "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET",
+            "openIdIssuer": "https://login.microsoftonline.com/<tenant-id>/v2.0"
+          },
+          "validation": { "defaultAuthorizationPolicy": { "allowedPrincipals": {} }, "jwtClaimChecks": {} }
+        },
+        "facebook": {"enabled": false}, "gitHub": {"enabled": false}, "google": {"enabled": false},
+        "legacyMicrosoftAccount": {"enabled": false}, "twitter": {"enabled": false}, "apple": {"enabled": false}
+      }
+    }
+  }'
+```
+Leave `allowedAudiences` and `defaultAuthorizationPolicy.allowedApplications` out deliberately — they don't fix the bare-`WWW-Authenticate` symptom (that's `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`'s job) and add nothing here. Explicitly disabling the other built-in identity providers does matter — it stops the ARM API silently defaulting them into an unconfigured-but-enabled state.
+
+Restart after applying either of the above: `az functionapp restart --resource-group drive-writeback-rg --name drive-writeback-func`.
+
+### PRM endpoint — no custom code needed
+
+`GET /.well-known/oauth-protected-resource/runtime/webhooks/mcp` is served natively by Easy Auth v2 once the above is live:
+```json
+{"resource":"https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp","authorization_servers":["https://login.microsoftonline.com/<tenant-id>/v2.0"],"scopes_supported":["https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user"]}
+```
+
+### Validation checks
+
+1. No `Authorization` header, correct `Accept: application/json, text/event-stream` → `401` plus `WWW-Authenticate: Bearer ... resource_metadata="https://drive-writeback-func.azurewebsites.net/.well-known/oauth-protected-resource/runtime/webhooks/mcp"`.
+2. `GET /.well-known/oauth-protected-resource/runtime/webhooks/mcp` → the PRM document above.
+3. Add the connector in Claude Desktop / claude.ai with the server URL, Connector app's `appId` as Client ID, and the secret from above as Client Secret — confirm a real Entra sign-in/consent redirect completes and the connector shows "Connected." A `get_item` or dry-run write tool call end to end is the most reliable confirmation of a valid bearer token reaching the MCP extension — a raw `curl` can't easily manufacture one.

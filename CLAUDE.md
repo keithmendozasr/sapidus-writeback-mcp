@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Servers
 
 - **outlook-writeback** — all phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. See `outlook-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
-- **drive-writeback** — Phase 2 ("Mutation surface": `update_file_content`, `rename_item`, `move_item`, `delete_item`), on top of Phase 1's safe creates, implemented and pending deployment. See `drive-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
+- **drive-writeback** — Phases 1 and 2 (safe creates plus the mutation surface: `update_file_content`, `rename_item`, `move_item`, `delete_item`) are implemented and deployed, including boundary-7b OAuth for Claude Desktop/claude.ai. See `drive-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
 
 ## What this repo is
 

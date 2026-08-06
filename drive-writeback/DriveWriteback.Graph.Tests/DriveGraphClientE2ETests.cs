@@ -285,11 +285,6 @@ public class DriveGraphClientE2ETests
     }
 
     /// <summary>
-    /// PRD §7 idempotency: DeleteItemByIdAsync on an item already deleted must swallow the
-    /// 404 and return, not throw. Self-skips like every other test in this fixture; unrun as
-    /// of this commit.
-    /// </summary>
-    /// <summary>
     /// Load-bearing for ResolveDriveIdAsync's fail-closed SharePoint-rejection guard: the
     /// allow-list there only permits driveType "business"/"personal" through. This asserts the
     /// live tenant's own OneDrive actually reports one of those two values when its drive id is
@@ -322,6 +317,10 @@ public class DriveGraphClientE2ETests
         }
     }
 
+    /// <summary>
+    /// PRD §7 idempotency: DeleteItemByIdAsync on an item already deleted must swallow the
+    /// 404 and return, not throw. Self-skips like every other test in this fixture.
+    /// </summary>
     [Test]
     public async Task DeleteItemByIdAsync_is_idempotent_on_an_already_deleted_item()
     {

@@ -224,4 +224,173 @@ public class DriveGraphClientIntegrationTests
             Assert.That(resolution.Item?.Id, Is.EqualTo(itemId));
         });
     }
+
+    [Test]
+    public async Task RenameItemAsync_sends_a_PATCH_with_the_new_name()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+                Assert.That(request.RequestUri!.ToString(), Does.Contain("items/item-id"));
+            });
+
+            var body = await request.Content!.ReadAsStringAsync();
+            Assert.That(body, Does.Contain("\"name\":\"new-name.md\""));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id","name":"new-name.md"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var result = await CreateClient(handler).RenameItemAsync("item-id", "new-name.md", driveId: "drive-id");
+
+        Assert.That(result?.Name, Is.EqualTo("new-name.md"));
+    }
+
+    [Test]
+    public async Task MoveItemAsync_sends_a_PATCH_with_the_new_parent_id()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                // Destination-parent lookup, used for the same-drive defense-in-depth check.
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"id":"new-parent-id","parentReference":{"driveId":"drive-id"}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            var body = await request.Content!.ReadAsStringAsync();
+            Assert.That(body, Does.Contain("\"id\":\"new-parent-id\""));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var result = await CreateClient(handler).MoveItemAsync("item-id", "new-parent-id", driveId: "drive-id");
+
+        Assert.That(result?.Id, Is.EqualTo("item-id"));
+    }
+
+    [Test]
+    public void MoveItemAsync_throws_DriveCrossDriveMoveException_when_the_destination_resolves_to_a_different_drive()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            // Every request in this scenario is the destination-parent lookup, which reports
+            // an owning drive different from the one the call was made under - the PATCH
+            // itself must never be attempted.
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Get));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"id":"new-parent-id","parentReference":{"driveId":"a-different-drive-id"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+
+        Assert.That(
+            () => CreateClient(handler).MoveItemAsync("item-id", "new-parent-id", driveId: "drive-id"),
+            Throws.InstanceOf<DriveCrossDriveMoveException>());
+    }
+
+    [Test]
+    public void DeleteItemByIdAsync_swallows_a_404_as_success()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent(
+                """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        // PRD §7 idempotency: deleting an already-deleted item must not surface as an error.
+        Assert.That(
+            async () => await CreateClient(handler).DeleteItemByIdAsync("item-id", driveId: "drive-id"),
+            Throws.Nothing);
+    }
+
+    [Test]
+    public void ReplaceContentByIdAsync_throws_DriveItemConcurrencyException_on_a_stubbed_412()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.That(request.Headers.GetValues("If-Match").Single(), Is.EqualTo("stale-etag"));
+
+            return Task.FromResult(new HttpResponseMessage((HttpStatusCode)412)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"resourceModified","message":"eTag does not match current value"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        });
+
+        Assert.That(
+            () => CreateClient(handler).ReplaceContentByIdAsync("item-id", "new content", "stale-etag", driveId: "drive-id"),
+            Throws.InstanceOf<DriveItemConcurrencyException>());
+    }
+
+    [Test]
+    public void GetItemByPathAsync_rejects_a_SharePoint_document_library_drive()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("The item lookup must never be reached once the drive is rejected."),
+            ownDriveType: "documentLibrary");
+
+        Assert.That(
+            () => CreateClient(handler).GetItemByPathAsync("notes.md", driveId: "drive-id"),
+            Throws.InstanceOf<SharePointDriveNotSupportedException>());
+    }
+
+    [Test]
+    public void GetItemByPathAsync_rejects_an_unrecognized_or_missing_drive_type()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("The item lookup must never be reached once the drive is rejected."),
+            ownDriveType: null);
+
+        Assert.That(
+            () => CreateClient(handler).GetItemByPathAsync("notes.md", driveId: "drive-id"),
+            Throws.InstanceOf<SharePointDriveNotSupportedException>(),
+            "An unrecognized driveType must fail closed, not be treated as an allowed OneDrive.");
+    }
+
+    [Test]
+    public async Task CreateFileAsync_validates_a_given_drive_id_only_once_across_its_own_parent_and_target_checks()
+    {
+        var handler = new StubHttpMessageHandler(request => request.Method == HttpMethod.Get
+            ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(
+                    """{"error":{"code":"itemNotFound","message":"Item not found"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            })
+            : Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"new-id"}""", Encoding.UTF8, "application/json"),
+            }));
+
+        await CreateClient(handler).CreateFileAsync("notes.md", "content", conflictBehavior: "fail", driveId: "drive-id");
+
+        Assert.That(
+            handler.DriveMetadataRequestCount,
+            Is.EqualTo(1),
+            "CreateFileAsync's own drive resolution and its nested TryGetItemByPathAsync target-exists check both resolve the same driveId - the drive-type validation should be cached, not repeated.");
+    }
 }

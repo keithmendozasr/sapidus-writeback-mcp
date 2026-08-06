@@ -27,6 +27,8 @@ Graph models OneDrive for Business and SharePoint document libraries under a sin
 
 All six must work against **both** the user's OneDrive and SharePoint document libraries in the tenant.
 
+**Deliberately not what's shipping right now:** the running server rejects SharePoint document library drives outright (`ResolveDriveIdAsync`, `DriveGraphClient.cs`) rather than operate against them without Phase 3's hardening in place — see the Phase 3 note in §11 and `drive-writeback/CLAUDE.md`'s Status section. This goal stays the target for when Phase 3 lands; it does not describe the current deployment.
+
 ## 3. Non-goals (v1)
 
 - Resumable/chunked uploads for files > 4 MB.
@@ -286,13 +288,15 @@ Unchanged from `outlook-writeback`:
 - **Confirm "Assignment required" on the Connector app's Enterprise Application works on the tenant's actual Entra license tier.** The Q8 action item (restrict Connector app sign-in to a single user, closing the any-tenant-user-can-authenticate gap) depends on this. **Resolved:** tenant is Entra ID Free. Individual user assignment (not group-based) works on Free tier without a P1/P2 upgrade — confirmed compatible.
 
 **Phase 1 — Safe creates**
-`get_item`, `create_folder`, `create_file`. Dry-run on. **Implemented, pending deployment** — see `drive-writeback/CLAUDE.md` Status for detail. One open question surfaced during implementation and remains genuinely open, not resolved: whether Graph's `@microsoft.graph.conflictBehavior` is honored as a raw query parameter on the simple-upload content PUT the way it is on `POST .../children`. A live probe test exists (`DriveGraphClientE2ETests.ContentPut_conflictBehavior_query_parameter_is_an_open_question`) but has never been run against a live tenant. `create_file`'s `conflict_behavior` handling does not depend on the answer either way — it's enforced entirely client-side (existence pre-check, then unconditional PUT) — so this is a recorded gap in tenant-behavior knowledge, not a blocker. A related diagnostic (does a content PUT to a missing parent auto-vivify it or 404) is similarly unrun and similarly moot for this server's own behavior (`CreateFileAsync` guards against a missing parent before ever reaching Graph).
+`get_item`, `create_folder`, `create_file`. Dry-run on. **Implemented, pending deployment** — see `drive-writeback/CLAUDE.md` Status for detail. Two open questions surfaced during implementation, both **now resolved against a live tenant**:
+- Whether Graph's `@microsoft.graph.conflictBehavior` is honored as a raw query parameter on the simple-upload content PUT the way it is on `POST .../children`. **Resolved: yes** — a deliberately-conflicting PUT with `?@microsoft.graph.conflictBehavior=fail` appended 409'd as expected (`DriveGraphClientE2ETests.ContentPut_conflictBehavior_query_parameter_is_an_open_question`). The first live run of this test surfaced a separate, now-fixed test bug: the 409 arrived as a bare `Microsoft.Kiota.Abstractions.ApiException` rather than the richer `ODataError` subtype, because this raw, manually-constructed request has no 409 error factory registered — the test's catch clause needed broadening to the base `ApiException` type. `create_file`'s `conflict_behavior` handling never depended on this answer either way — it's enforced entirely client-side (existence pre-check, then unconditional PUT) — so this was a recorded gap in tenant-behavior knowledge, not a blocker, and stays that way now that it's closed.
+- Whether a content PUT to a path whose parent is missing auto-vivifies the parent tree or 404s. **Resolved: it auto-vivifies** (`DriveWriteServiceE2ETests.ContentPut_to_a_missing_parent_is_an_open_question`). Moot for this server's own behavior either way — `CreateFileAsync` guards against a missing parent before ever reaching Graph — but now a confirmed fact rather than an open one.
 
 **Phase 2 — Mutation surface**
-`update_file_content`, `rename_item`, `move_item`, `delete_item`.
+`update_file_content`, `rename_item`, `move_item`, `delete_item`. **Implemented, pending deployment.** All 12 E2E tests (the 3 original Phase 0 spikes plus 9 added across Phase 1/2) now pass against a live tenant, including the new Phase 2 round trips: `rename_item`, `move_item`, delete-idempotency, the `update_file_content` dry-run/real round trip, and the full `delete_item` preview-then-confirm confirmation flow through `DriveItemDeletionService`.
 
 **Phase 3 — SharePoint hardening**
-Check-out/check-in handling, required-column detection, draft-state warnings, version reporting in the audit log.
+Check-out/check-in handling, required-column detection, draft-state warnings, version reporting in the audit log. **Not started, and until it lands, the server actively rejects SharePoint document library drives** (`ResolveDriveIdAsync` in `DriveGraphClient.cs`, `SharePointDriveNotSupportedException`) rather than operate against them with none of this hardening in place — a deliberate scope decision, not silent neglect. See `drive-writeback/CLAUDE.md`'s Status section for current state.
 
 **Phase 4 — Deferred**
 `copy_item` (async, 202 + monitor URL polling), binary/base64 content, upload-from-URL, resumable upload sessions, restore-from-recycle-bin, cross-drive move.
@@ -315,11 +319,11 @@ Check-out/check-in handling, required-column detection, draft-state warnings, ve
 
 ## 13. Success criteria
 
-- All six use cases executable end-to-end from Claude Desktop against both OneDrive and at least one SharePoint library on the live tenant.
+- All six use cases executable end-to-end from Claude Desktop against both OneDrive and at least one SharePoint library on the live tenant. **Currently OneDrive-only by deliberate choice** — see the Phase 3 note in §11; the SharePoint half of this criterion is deferred along with Phase 3, not a live gap.
 - No writes possible beyond what the signed-in account's own Graph permissions allow (§9) — enforcement is Graph's ACL, not an app-level list; verified by test that a write to an inaccessible drive/site fails with Graph's own 403/404, not a silent success.
 - No path to permanent data loss without an explicit user confirmation turn.
-- Required-column and check-out draft states detected and reported, never silently reported as success.
-- Every mutation reconstructable from the audit log, including SharePoint version numbers.
+- Required-column and check-out draft states detected and reported, never silently reported as success. **Moot for now** — SharePoint drives are rejected before any such write is attempted (§11 Phase 3).
+- Every mutation reconstructable from the audit log, including SharePoint version numbers. **SharePoint version numbers specifically deferred to Phase 3**, same reasoning.
 - Full `Microsoft.Graph` SDK, Native AOT dropped — see §10.
 
 ---

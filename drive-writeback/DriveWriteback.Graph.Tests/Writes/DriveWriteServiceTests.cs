@@ -169,4 +169,238 @@ public class DriveWriteServiceTests
             Assert.That(logger.Messages, Has.Some.Contains("new-file-id"), "the audit log entry should include the created item's id.");
         });
     }
+
+    [Test]
+    public async Task UpdateFileContentAsync_dry_run_resolves_the_target_and_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","eTag":"\"old-etag\""}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.UpdateFileContentAsync("notes.md", "new content", "\"old-etag\"", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.True);
+            Assert.That(result.Item?.Id, Is.EqualTo("existing-id"));
+        });
+    }
+
+    [Test]
+    public async Task UpdateFileContentAsync_real_mode_resolves_then_sends_an_If_Match_PUT()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"existing-id","eTag":"\"old-etag\""}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Put));
+                Assert.That(request.Headers.GetValues("If-Match").Single(), Is.EqualTo("\"old-etag\""));
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","eTag":"\"new-etag\""}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.UpdateFileContentAsync("notes.md", "new content", "\"old-etag\"", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.Item?.ETag, Is.EqualTo("\"new-etag\""));
+        });
+    }
+
+    [Test]
+    public async Task RenameItemAsync_dry_run_resolves_the_target_and_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","name":"old-name.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.RenameItemAsync("old-name.md", "new-name.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.True);
+            Assert.That(result.NewName, Is.EqualTo("new-name.md"));
+            Assert.That(result.Item?.Id, Is.EqualTo("existing-id"));
+        });
+    }
+
+    [Test]
+    public async Task RenameItemAsync_real_mode_resolves_then_sends_a_PATCH()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"existing-id","name":"old-name.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"existing-id","name":"new-name.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.RenameItemAsync("old-name.md", "new-name.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.Item?.Name, Is.EqualTo("new-name.md"));
+        });
+    }
+
+    [Test]
+    public async Task MoveItemAsync_dry_run_resolves_item_and_destination_and_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            if (request.Method != HttpMethod.Get)
+                throw new InvalidOperationException($"Dry-run must never send a {request.Method} request.");
+
+            var uri = request.RequestUri!.ToString();
+            var body = uri.Contains("target-folder")
+                ? """{"id":"parent-id","name":"target-folder","folder":{}}"""
+                : """{"id":"item-id","name":"notes.md"}""";
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        });
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.MoveItemAsync("notes.md", "target-folder", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.True);
+            Assert.That(result.NewParentId, Is.EqualTo("parent-id"));
+            Assert.That(result.Item?.Id, Is.EqualTo("item-id"));
+        });
+    }
+
+    [Test]
+    public async Task MoveItemAsync_real_mode_resolves_then_sends_a_PATCH()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var uri = request.RequestUri!.ToString();
+
+            if (request.Method == HttpMethod.Get && uri.Contains("target-folder"))
+            {
+                // Service-layer resolution of the destination parent by path.
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"parent-id","name":"target-folder","folder":{}}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            if (request.Method == HttpMethod.Get && uri.Contains("notes.md"))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            if (request.Method == HttpMethod.Get)
+            {
+                // DriveGraphClient.MoveItemAsync's own destination-by-id lookup for the
+                // same-drive defense-in-depth check.
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"parent-id","parentReference":{"driveId":"drive-id"}}""", Encoding.UTF8, "application/json"),
+                });
+            }
+
+            Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"item-id","name":"notes.md"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.MoveItemAsync("notes.md", "target-folder", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.DryRun, Is.False);
+            Assert.That(result.NewParentId, Is.EqualTo("parent-id"));
+            Assert.That(result.Item?.Id, Is.EqualTo("item-id"));
+        });
+    }
+
+    [Test]
+    public async Task DeleteItemAsync_dry_run_makes_no_mutating_call()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Dry-run must never send any Graph request for delete."));
+        var service = CreateService(handler, DriveWriteOptions.Default);
+
+        var result = await service.DeleteItemAsync("item-id", driveId: "drive-id");
+
+        Assert.That(result.DryRun, Is.True);
+    }
+
+    [Test]
+    public async Task DeleteItemAsync_real_mode_sends_a_DELETE()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Delete));
+                Assert.That(request.RequestUri!.ToString(), Does.Contain("items/item-id"));
+            });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+        var options = new DriveWriteOptions(DryRun: false, MaxContentBytes: 1_048_576);
+        var service = CreateService(handler, options);
+
+        var result = await service.DeleteItemAsync("item-id", driveId: "drive-id");
+
+        Assert.That(result.DryRun, Is.False);
+    }
 }

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Servers
 
 - **outlook-writeback** — all phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. See `outlook-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
-- **drive-writeback** — Phase 1 ("Safe creates": `get_item`, `create_folder`, `create_file`) implemented, pending deployment. See `drive-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
+- **drive-writeback** — Phase 2 ("Mutation surface": `update_file_content`, `rename_item`, `move_item`, `delete_item`), on top of Phase 1's safe creates, implemented and pending deployment. See `drive-writeback/CLAUDE.md` for build/test commands, runtime specifics, and pointers to that server's own design docs — this file doesn't duplicate them.
 
 ## What this repo is
 
@@ -22,7 +22,7 @@ The repo is one codebase for developer convenience only. It is deliberately **no
 ```
 sapidus-writeback-mcp/
 ├── REPO-CONVENTIONS.md          # cross-server rules, read this first
-├── shared/                       # 7b transport/auth code ONLY, capability-agnostic
+├── shared/                       # capability-agnostic code only — 7b transport/auth, plus generic non-Graph primitives like confirmation tokens
 ├── outlook-writeback/
 │   ├── CLAUDE.md                 # build/test commands, runtime specifics for this server
 │   ├── docs/
@@ -64,18 +64,23 @@ Per the MCP spec, a server has no concept of which AI agent is calling it — it
 
 ## What belongs in `shared/`
 
-`shared/` is only for genuinely capability-agnostic code — concretely, the Claude-to-MCP-server auth/transport layer (each server's PRD calls this "boundary 7b": the bearer token or self-issued OAuth 2.1 layer deciding *who may call this server's tools*, as distinct from *what the server may do in Graph*).
+`shared/` is for genuinely capability-agnostic code. Two categories qualify so far:
+
+1. **The Claude-to-MCP-server auth/transport layer** (each server's PRD calls this "boundary 7b": the bearer token or self-issued OAuth 2.1 layer deciding *who may call this server's tools*, as distinct from *what the server may do in Graph*).
+2. **Generic, non-Graph safety primitives with no server identity baked in** — e.g. `ConfirmationTokenService`, the stateless HMAC-signed token that gates a destructive tool's second, confirming call (originally written for `outlook-writeback`'s `delete_event`, extracted when `drive-writeback`'s `delete_item` needed the identical mechanism). It never calls Graph, never references a Graph model, and each server still supplies its own signing key from its own Key Vault secret — only the mechanism is shared, not runtime state or credentials.
 
 **Never in `shared/`:** Graph client secrets/certificates/tokens for any specific server, business logic specific to one server's tools, or anything that would require one server's Key Vault access to reach another's.
 
 Test for whether something belongs in `shared/`: *would this code need to change if a new server's Graph scopes changed?* If yes, it's server-specific.
+
+**This test alone isn't sufficient, though — see `REPO-CONVENTIONS.md` §4.** Boundary-7a auth code (redeem-refresh-token/cache-access-token/rotate-refresh-token) passes this same test — it's fully parameterized and holds no server identity either — yet is deliberately *not* shared, because doing so would couple every server's Graph-auth failure modes together, which is exactly what this repo's independent-deployability invariant exists to prevent. The distinguishing question for a borderline case: does this code touch Graph or credentials at all? `ConfirmationTokenService` doesn't (it signs an opaque id string and a timestamp, nothing else), so the 7a coupling risk doesn't transfer to it; boundary-7a auth code by definition does.
 
 ## Two independent auth boundaries — don't conflate them
 
 Every server has two separate auth layers (see that server's own design docs under `docs/` for the full definitions):
 
 - **7a — MCP server → Microsoft Graph.** Each server owns its own single-tenant Entra App Registration and OAuth 2.0 Authorization Code + PKCE flow to Graph, with only the delegated scopes that server needs. This is never shared across servers and never lives in `shared/`.
-- **7b — Claude → MCP server.** Governs who's allowed to call the server's tools at all (in the Outlook server's case, a single user). Prefer a static bearer token (`claude mcp add --transport http ... --header "Authorization: Bearer <token>"`) over a full OAuth server unless the client surface requires OAuth. This boundary's code is the one candidate for `shared/`.
+- **7b — Claude → MCP server.** Governs who's allowed to call the server's tools at all (in the Outlook server's case, a single user). Prefer a static bearer token (`claude mcp add --transport http ... --header "Authorization: Bearer <token>"`) over a full OAuth server unless the client surface requires OAuth. This boundary's code is one candidate for `shared/` — see `## What belongs in shared/` above for the other (generic, non-Graph safety primitives like confirmation tokens).
 
 ## Secrets handling
 

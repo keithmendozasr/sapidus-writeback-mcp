@@ -15,9 +15,9 @@ public sealed class CreateFolderTool(DriveWriteService writeService)
                 "This server may be running in dry-run mode, in which case the response is prefixed '[DRY RUN]' " +
                 "and nothing is actually created.")]
             ToolInvocationContext context,
-        [McpToolProperty("path", "Full drive-relative path of the folder to create, e.g. \"Shared Documents/notes/2026\".", isRequired: true)]
+        [McpToolProperty("path", "Full drive-relative path of the folder to create, e.g. \"notes/2026\".", isRequired: true)]
             string path,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var result = await writeService.CreateFolderAsync(path, driveId);

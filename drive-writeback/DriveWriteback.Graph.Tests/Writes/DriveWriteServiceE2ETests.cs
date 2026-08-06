@@ -1,6 +1,9 @@
+using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Graph;
+using DriveWriteback.Graph.Confirmation;
 using DriveWriteback.Graph.Writes;
+using Sapidus.Writeback.Shared.Confirmation;
 
 namespace DriveWriteback.Graph.Tests.Writes;
 
@@ -152,5 +155,78 @@ public class DriveWriteServiceE2ETests
             Assert.That(folderCheck, Is.Null, "dry-run create_folder must not actually create anything.");
             Assert.That(fileCheck, Is.Null, "dry-run create_file must not actually create anything.");
         });
+    }
+
+    /// <summary>
+    /// Phase 2: update_file_content's mandatory if_match against a real file. Dry-run must
+    /// resolve the target and report the pre-update eTag without writing; real mode must
+    /// then replace the content and return a different post-update eTag. Self-skips like
+    /// every other test in this fixture; unrun as of this commit.
+    /// </summary>
+    [Test]
+    public async Task UpdateFileContentAsync_dry_run_then_real_mode_round_trip()
+    {
+        var path = $"phase2-spike-update-content-{Guid.NewGuid():N}.txt";
+
+        try
+        {
+            var created = await _client!.UploadTextContentAsync(path, "v1");
+            var originalETag = created!.ETag!;
+
+            var dryRunService = CreateService(dryRun: true);
+            var dryRunResult = await dryRunService.UpdateFileContentAsync(path, "v2-should-not-write", originalETag);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(dryRunResult.DryRun, Is.True);
+                Assert.That(dryRunResult.Item?.ETag, Is.EqualTo(originalETag), "dry-run must report the pre-update item, not mutate it.");
+            });
+
+            var unchanged = await _client.GetItemByPathAsync(path);
+            Assert.That(unchanged?.ETag, Is.EqualTo(originalETag), "dry-run update_file_content must not actually write anything.");
+
+            var realService = CreateService(dryRun: false);
+            var realResult = await realService.UpdateFileContentAsync(path, "v2", originalETag);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(realResult.DryRun, Is.False);
+                Assert.That(realResult.Item?.ETag, Is.Not.EqualTo(originalETag), "a real content replacement must produce a new eTag.");
+            });
+        }
+        finally
+        {
+            await _client!.DeleteItemAsync(path);
+        }
+    }
+
+    /// <summary>
+    /// Phase 2: delete_item's two-call confirmation flow against a real file, end to end
+    /// through DriveItemDeletionService (not just DriveGraphClient directly) - preview issues
+    /// a token without deleting, confirm then actually deletes. The signing key here is
+    /// purely local to this test process, unrelated to the deployed server's Key Vault
+    /// secret. Self-skips like every other test in this fixture; unrun as of this commit.
+    /// </summary>
+    [Test]
+    public async Task DriveItemDeletionService_preview_then_confirm_round_trip_deletes_a_real_file()
+    {
+        var path = $"phase2-spike-delete-confirm-{Guid.NewGuid():N}.txt";
+        var created = await _client!.UploadTextContentAsync(path, "v1");
+
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("e2e-local-signing-key"));
+        var deletionService = new DriveItemDeletionService(_client!, CreateService(dryRun: false), tokenService);
+
+        var pending = await deletionService.RequestDeletionAsync(created!.Id!, created.Name!, recursive: false);
+        Assert.That(pending.ItemId, Is.EqualTo(created.Id));
+
+        var stillThere = await _client.TryGetItemByPathAsync(path);
+        Assert.That(stillThere, Is.Not.Null, "the preview call must not delete anything.");
+
+        var confirmed = await deletionService.ConfirmDeletionAsync(
+            pending.ItemId, pending.ConfirmationToken, created.Name!, recursive: false);
+        Assert.That(confirmed, Is.EqualTo(ConfirmedItemDeletion.Deleted));
+
+        var afterDelete = await _client.TryGetItemByPathAsync(path);
+        Assert.That(afterDelete, Is.Null, "the confirm call must actually delete the item.");
     }
 }

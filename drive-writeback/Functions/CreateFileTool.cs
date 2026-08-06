@@ -17,7 +17,7 @@ public sealed class CreateFileTool(DriveWriteService writeService)
                 "running in dry-run mode, in which case the response is prefixed '[DRY RUN]' and nothing is " +
                 "actually written.")]
             ToolInvocationContext context,
-        [McpToolProperty("path", "Drive-relative path, e.g. \"Shared Documents/notes/2026-07.md\".", isRequired: true)]
+        [McpToolProperty("path", "Drive-relative path, e.g. \"notes/2026-07.md\".", isRequired: true)]
             string path,
         [McpToolProperty("content", "UTF-8 text content.", isRequired: true)] string content,
         [McpToolProperty(
@@ -25,7 +25,7 @@ public sealed class CreateFileTool(DriveWriteService writeService)
             "'fail' (default) errors if the target already exists; 'rename' appends a numeric suffix to avoid a " +
                 "collision; 'replace' overwrites the existing target.")]
             string? conflictBehavior,
-        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive.")]
+        [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)
     {
         var resolvedConflictBehavior = conflictBehavior ?? "fail";

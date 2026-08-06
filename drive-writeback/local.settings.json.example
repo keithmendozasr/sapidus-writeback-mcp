@@ -7,6 +7,7 @@
     "DRIVE_WRITEBACK_CLIENT_ID": "<App registration client>",
     "DRIVE_WRITEBACK_KEY_VAULT_URI": "<Azure function's Keyvault URL>",
     "DRIVE_WRITEBACK_DRY_RUN": "true",
-    "DRIVE_WRITEBACK_MAX_CONTENT_BYTES": "1048576"
+    "DRIVE_WRITEBACK_MAX_CONTENT_BYTES": "1048576",
+    "DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY": "<base64-encoded signing key for delete_item's confirmation tokens>"
   }
 }

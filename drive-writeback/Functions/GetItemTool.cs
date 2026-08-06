@@ -10,11 +10,13 @@ public sealed class GetItemTool(DriveGraphClient client)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "get_item",
-            "Fetch metadata for one file or folder: eTag, cTag, size, folder/file discriminator, web URL. " +
-                "This is a pre-write safety check, not a browsing tool - it does not enumerate a folder's contents. " +
-                "A target that doesn't exist surfaces as an error, not a negative answer - parents are never " +
-                "auto-created by create_file, so checking here first before create_folder/create_file avoids a " +
-                "failed write on a typo'd path.")]
+            "Fetch metadata for one file or folder: size, folder/file discriminator, web URL, and an if_match value " +
+                "for update_file_content - copy that value verbatim, including its surrounding double quotes, into " +
+                "if_match; dropping the quotes makes update_file_content fail every time regardless of how fresh " +
+                "the read was. This is a pre-write safety check, not a browsing tool - it does not enumerate a " +
+                "folder's contents. A target that doesn't exist surfaces as an error, not a negative answer - " +
+                "parents are never auto-created by create_file, so checking here first before create_folder/" +
+                "create_file avoids a failed write on a typo'd path.")]
             ToolInvocationContext context,
         [McpToolProperty(
             "path_or_id",
@@ -29,7 +31,11 @@ public sealed class GetItemTool(DriveGraphClient client)
         var interpretation = resolvedAsId ? "ID" : "path";
 
         return $"{kind} \"{item.Name}\" (resolved \"{pathOrId}\" as {interpretation}). " +
-            $"ID: {item.Id}. Size: {item.Size} bytes. ETag: {item.ETag}. CTag: {item.CTag}. Web URL: {item.WebUrl}. " +
+            $"ID: {item.Id}. Size: {item.Size} bytes. Web URL: {item.WebUrl}. " +
+            $"if_match value for update_file_content - copy this exact string verbatim into that parameter, " +
+            $"including the double-quote characters at each end (they are part of the value Graph checks, not " +
+            $"sentence punctuation): {item.ETag} " +
+            $"-- the item's cTag is an equally valid if_match value, same copy-verbatim rule: {item.CTag} " +
             "Checkout state: not tracked for OneDrive in this phase.";
     }
 }

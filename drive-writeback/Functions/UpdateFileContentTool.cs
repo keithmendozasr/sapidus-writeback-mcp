@@ -10,18 +10,19 @@ public sealed class UpdateFileContentTool(DriveWriteService writeService)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "update_file_content",
-            "Replace the full content of an existing file. if_match is REQUIRED - the eTag or cTag from a prior " +
-                "get_item call - and enforced server-side by Graph as an optimistic-concurrency check: if the file " +
-                "has changed since that read, the call fails with a distinct error rather than silently overwriting " +
-                "someone else's change. On that error, call get_item again for the current eTag and retry. This " +
-                "server may be running in dry-run mode, in which case the response is prefixed '[DRY RUN]' and " +
-                "nothing is actually written.")]
+            "Replace the full content of an existing file. if_match is REQUIRED - the exact if_match value get_item " +
+                "returned for this file, copied verbatim including its surrounding double quotes - and enforced " +
+                "server-side by Graph as an optimistic-concurrency check: if the file has changed since that read, " +
+                "the call fails with a distinct error rather than silently overwriting someone else's change. On " +
+                "that error, call get_item again for the current if_match value and retry. This server may be " +
+                "running in dry-run mode, in which case the response is prefixed '[DRY RUN]' and nothing is " +
+                "actually written.")]
             ToolInvocationContext context,
         [McpToolProperty("path_or_id", "Drive-relative path or a Graph item ID. Both are accepted anywhere the other is.", isRequired: true)]
             string pathOrId,
         [McpToolProperty("content", "UTF-8 text content to replace the file's current content with.", isRequired: true)]
             string content,
-        [McpToolProperty("if_match", "The eTag or cTag from a prior get_item call. Required.", isRequired: true)]
+        [McpToolProperty("if_match", "The exact if_match value get_item returned - copy it verbatim, including its surrounding double-quote characters, which are part of the value Graph checks, not punctuation. Required.", isRequired: true)]
             string ifMatch,
         [McpToolProperty("drive_id", "Target drive ID. Omit to use the signed-in user's own OneDrive. Another user's OneDrive (e.g. an item they've shared with you) is allowed; SharePoint document library drives are rejected - not supported by this deployment.")]
             string? driveId)

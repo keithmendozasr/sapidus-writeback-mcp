@@ -32,7 +32,7 @@ The E2E tier uses `InteractiveBrowserCredential`, which requires the "Drive Writ
 
 ## Releases and versioning
 
-This server's canonical version lives in `version.txt` (semver, pre-1.0), tracked by its own [release-please](https://github.com/googleapis/release-please) package (own `CHANGELOG.md`, own release PR — see root `release-please-config.json`). `host.json`'s `$.extensions.mcp.serverVersion` (currently `0.1.0`, matching `version.txt`) is now wired into that package's `extra-files`, following `outlook-writeback`'s pattern — a release-please bump patches both in lockstep.
+This server's canonical version lives in `version.txt` (semver, pre-1.0), tracked by its own [release-please](https://github.com/googleapis/release-please) package (own `CHANGELOG.md`, own release PR — see root `release-please-config.json`). `host.json`'s `$.extensions.mcp.serverVersion` (currently `0.0.0`, matching `version.txt`) is now wired into that package's `extra-files`, following `outlook-writeback`'s pattern — a release-please bump patches both in lockstep. `version.txt` and the manifest were reset from a hand-seeded `0.1.0` back to `0.0.0` in August 2026 after that value produced a `0.2.0` release-please PR for what should have been this server's first-ever release — nothing had actually shipped (no tag, no GitHub release, no `CHANGELOG.md`) — so `0.1.0` will now be the real first release once release-please regenerates its PR against this corrected baseline.
 
 ## Key points for a future implementer
 

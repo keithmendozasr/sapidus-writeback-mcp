@@ -218,7 +218,7 @@ Separate from "Drive Writeback MCP" (boundary 7a, Graph delegation, registered a
 ```
 az ad app create --display-name "Drive Writeback MCP Connector" --sign-in-audience AzureADMyOrg --output json
 ```
-Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>`:
+Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>` — **each of the four calls below needs `--headers "Content-Type=application/json"` alongside `--body`**, or Graph rejects it with `BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration` even though the body is valid JSON. On PowerShell, the header alone isn't enough for a multi-line JSON body either — write it to a file first and pass `--body @<file>` (see the "Custom domain" section below for the confirmed-working pattern), rather than an inline quoted string:
 
 1. `{"api": {"requestedAccessTokenVersion": 2}}` **first**, before `identifierUris` — Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy` otherwise.
 2. `identifierUris` to both `https://<server>-func.azurewebsites.net` and `.../runtime/webhooks/mcp` — the MCP extension resource-checks against the full route, not just the host.
@@ -323,24 +323,21 @@ Same phase `outlook-writeback` already went through — see `outlook-writeback/D
 2. **Wrong — leave `identifierUris` and `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` alone entirely:** a `401` against the new hostname still advertises the old hostname's scope (`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` is a single static value, not derived per-request — only the PRM document's `resource` field is dynamic, from the request's Host header). A cached-token reconnect can work anyway, masking the problem; a later fresh authorize fails with `OAuth error: invalid_target - AADSTS9010010: The resource parameter provided in the request doesn't match with the requested scopes`.
 3. **Right — swap, not add, in the same pass:**
 
-   PowerShell:
+   PowerShell — **write the body to a file and pass `--body @file` rather than an inline quoted string.** Both `--headers "Content-Type=application/json"` alone (Graph needs it — see below) and a plain multi-line `'...'` string spliced across backtick-continued lines (fragile in this exact way — the console can get stuck waiting on an unterminated line, and even when it does submit, Graph reports it can't parse the JSON) were tried and failed live against this tenant; the file-based form below is the one that actually worked:
    ```powershell
-   az rest --method PATCH `
-     --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" `
-     --body '{"identifierUris":[
-       "https://<subdomain>.example.com",
-       "https://<subdomain>.example.com/runtime/webhooks/mcp"
-     ]}'
+   $body = '{"identifierUris":["https://<subdomain>.example.com","https://<subdomain>.example.com/runtime/webhooks/mcp"]}'
+   $bodyFile = New-TemporaryFile
+   Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
 
-   az functionapp config appsettings set `
-     --name <server>-func `
-     --resource-group <server>-rg `
-     --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
+   az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+
+   az functionapp config appsettings set --name <server>-func --resource-group <server>-rg --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
    ```
-   bash/Git Bash:
+   bash/Git Bash — untested against a live tenant during this pass, but kept as the multi-line form since bash doesn't share PowerShell's `az.cmd`/console quoting failure modes documented above:
    ```bash
    az rest --method PATCH \
      --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+     --headers "Content-Type=application/json" \
      --body '{"identifierUris":[
        "https://<subdomain>.example.com",
        "https://<subdomain>.example.com/runtime/webhooks/mcp"
@@ -351,6 +348,8 @@ Same phase `outlook-writeback` already went through — see `outlook-writeback/D
      --resource-group <server>-rg \
      --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
    ```
+   **`--headers "Content-Type=application/json"` is required** — Microsoft Graph rejects a PATCH/PUT with a `--body` but no explicit `Content-Type` (`BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration`), even though `az rest` sends valid JSON. ARM (`management.azure.com`) calls elsewhere in this doc haven't been observed to need this, only Graph (`graph.microsoft.com`) ones. On PowerShell, that header alone isn't sufficient either — confirmed live: adding just the header still failed with `BadRequest: Unable to read JSON request payload`, tracing back to how `az.cmd` (a batch file, reparsed by `cmd.exe`) handles a multi-line quoted argument. Writing the JSON to a file first and passing `--body @<file>` sidesteps the whole quoting chain and is the form confirmed working.
+
    Both changes have to land together — updating only `identifierUris` would leave the advertised scope pointing at a URI the app no longer registers, breaking auth for everyone until the second command lands. There's no way to make both hostnames work for OAuth at once on this self-referencing app; true dual-hostname support would need a non-self-referencing app split (separate app for the API vs. the client), not attempted here.
 
 **How to confirm it worked:** an unauthenticated request against the new hostname should return `401` with `WWW-Authenticate`'s `scope` and the PRM document's `resource`/`scopes_supported` all reading the new hostname — they must agree. Then run a fresh (not reconnect) authorize on both client surfaces this server has: Claude Desktop (a confidential client — this needs a remove-and-re-add of the connector, an in-place URL edit isn't enough) and claude.ai's connector UI. The old hostname's `401` will now mirror the new hostname's scope back, so a fresh authorize there fails with the same `AADSTS9010010` in reverse — expected, per the cutover tradeoff above.

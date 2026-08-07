@@ -160,6 +160,12 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
        DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576 \
        DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY="@Microsoft.KeyVault(SecretUri=https://<server>-kv.vault.azure.net/secrets/delete-confirmation-signing-key/)"
    ```
+   The truncation bug above is specific to PowerShell's backtick continuation, but it costs nothing to verify here too — same check, works identically in either shell:
+   ```bash
+   az functionapp config appsettings list --resource-group <server>-rg --name <server>-func --query "[?name=='DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY'].value" -o tsv
+   ```
+   The value should end in `secrets/delete-confirmation-signing-key/)` — closing paren included.
+
    Leave `DRIVE_WRITEBACK_DRY_RUN=true` until you've confirmed writes behave as expected against the live tenant, then flip it to `false` (no code change needed — see `Program.cs`). **On the current production deployment this has already been done** — `DRIVE_WRITEBACK_DRY_RUN` is `false`, real writes confirmed working end to end from Claude Desktop and claude.ai (see `CLAUDE.md`'s Status section); this step's `true` starting value only matters when standing the server up fresh. Aside from the confirmation-signing-key reference, no other Key Vault-reference settings are used — the refresh token is read/written live via the Key Vault Secrets SDK (see `Auth/KeyVaultRefreshTokenStore.cs`). This also means the Function App's managed identity needs **Key Vault Secrets User** (read-only is enough here) in addition to the Secrets Officer grant from step 5, if not already covered by it.
 9. Application Insights — created and linked automatically by `az functionapp create`; no separate step needed.
 
@@ -218,12 +224,81 @@ Separate from "Drive Writeback MCP" (boundary 7a, Graph delegation, registered a
 ```
 az ad app create --display-name "Drive Writeback MCP Connector" --sign-in-audience AzureADMyOrg --output json
 ```
-Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>` — **each of the four calls below needs `--headers "Content-Type=application/json"` alongside `--body`**, or Graph rejects it with `BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration` even though the body is valid JSON. On PowerShell, the header alone isn't enough for a multi-line JSON body either — write it to a file first and pass `--body @<file>` (see the "Custom domain" section below for the confirmed-working pattern), rather than an inline quoted string:
+Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>` — **each of the four calls below needs `--headers "Content-Type=application/json"` alongside `--body`**, or Graph rejects it with `BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration` even though the body is valid JSON. On PowerShell, the header alone isn't enough — `az.cmd` (a batch file, reparsed by `cmd.exe`) mangles a quoted JSON argument, so every PowerShell form below writes the body to a temp file and passes `--body @<file>` instead (the same confirmed-working pattern the "Custom domain" section below relies on). bash/Git Bash doesn't share that quoting failure mode, so an inline `--body '...'` is fine there.
 
-1. `{"api": {"requestedAccessTokenVersion": 2}}` **first**, before `identifierUris` — Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy` otherwise.
-2. `identifierUris` to both `https://<server>-func.azurewebsites.net` and `.../runtime/webhooks/mcp` — the MCP extension resource-checks against the full route, not just the host.
-3. An "Expose an API" scope: `{"api": {"oauth2PermissionScopes": [{"type": "User", "value": "access_as_user", "isEnabled": true, "id": "<new-guid>", "adminConsentDisplayName": "...", "adminConsentDescription": "...", "userConsentDisplayName": "...", "userConsentDescription": "..."}]}}`.
-4. `web.redirectUris: ["https://claude.ai/api/mcp/auth_callback"]` — required for both Desktop/Cowork and claude.ai's connector UI, which both present a client secret at token exchange (confidential client, hence `web`, not `publicClient`).
+**1. `requestedAccessTokenVersion` — must land first, before `identifierUris`**, or Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy`:
+
+PowerShell:
+```powershell
+$body = '{"api": {"requestedAccessTokenVersion": 2}}'
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body '{"api": {"requestedAccessTokenVersion": 2}}'
+```
+
+**2. `identifierUris`** — both `https://<server>-func.azurewebsites.net` and `.../runtime/webhooks/mcp` — the MCP extension resource-checks against the full route, not just the host:
+
+PowerShell:
+```powershell
+$body = '{"identifierUris":["https://<server>-func.azurewebsites.net","https://<server>-func.azurewebsites.net/runtime/webhooks/mcp"]}'
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body '{"identifierUris":["https://<server>-func.azurewebsites.net","https://<server>-func.azurewebsites.net/runtime/webhooks/mcp"]}'
+```
+
+**3. An "Expose an API" scope.** Needs a fresh GUID for the scope `id` — generate one however's convenient (PowerShell's `[guid]::NewGuid()`; on bash/Git Bash, `python3 -c "import uuid; print(uuid.uuid4())"` if Python's available, or any other UUID generator):
+
+PowerShell:
+```powershell
+$scopeId = [guid]::NewGuid()
+$body = "{`"api`": {`"oauth2PermissionScopes`": [{`"type`": `"User`", `"value`": `"access_as_user`", `"isEnabled`": true, `"id`": `"$scopeId`", `"adminConsentDisplayName`": `"Access <server> MCP as the signed-in user`", `"adminConsentDescription`": `"Allows the app to call <server> MCP tools on behalf of the signed-in user.`", `"userConsentDisplayName`": `"Access <server> MCP as you`", `"userConsentDescription`": `"Allows the app to call <server> MCP tools on your behalf.`"}]}}"
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+scope_id=$(python3 -c "import uuid; print(uuid.uuid4())")
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body "{\"api\": {\"oauth2PermissionScopes\": [{\"type\": \"User\", \"value\": \"access_as_user\", \"isEnabled\": true, \"id\": \"$scope_id\", \"adminConsentDisplayName\": \"Access <server> MCP as the signed-in user\", \"adminConsentDescription\": \"Allows the app to call <server> MCP tools on behalf of the signed-in user.\", \"userConsentDisplayName\": \"Access <server> MCP as you\", \"userConsentDescription\": \"Allows the app to call <server> MCP tools on your behalf.\"}]}}"
+```
+
+**4. `web.redirectUris`** — required for both Desktop/Cowork and claude.ai's connector UI, which both present a client secret at token exchange (confidential client, hence `web`, not `publicClient`):
+
+PowerShell:
+```powershell
+$body = '{"web": {"redirectUris": ["https://claude.ai/api/mcp/auth_callback"]}}'
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body '{"web": {"redirectUris": ["https://claude.ai/api/mcp/auth_callback"]}}'
+```
 
 No `publicClient.redirectUris` entry — that's only needed if the CLI is ever wired up against this app, which it currently isn't.
 

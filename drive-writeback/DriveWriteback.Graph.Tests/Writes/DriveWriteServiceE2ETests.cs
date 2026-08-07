@@ -15,9 +15,9 @@ namespace DriveWriteback.Graph.Tests.Writes;
 /// through DriveWriteService, the layer create_folder/create_file's tool classes actually
 /// call.
 ///
-/// As of this commit, none of these tests have been run against a live tenant (no browser
-/// session available in this implementation pass) - see docs/active/PRD-drive-write.md §11
-/// for where findings get written back once someone does run them.
+/// All tests in this fixture have now been run against a live tenant and pass - see
+/// docs/archive/PRD-drive-write.md §11 and ../CLAUDE.md's Status section for the findings
+/// these runs resolved.
 /// </summary>
 [TestFixture]
 [Category("E2E")]

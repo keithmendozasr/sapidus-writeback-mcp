@@ -1,10 +1,11 @@
 # PRD — `drive-writeback` MCP Server
 
-**Status:** v1 shipped (OneDrive, Phases 1–2, deployed and confirmed working from Claude Desktop and claude.ai). SharePoint support, multi-tenant/OSS deployability, and the extended-feature backlog have been extracted to sibling PRDs — see `docs/active/PRD-sharepoint-support.md`, `docs/active/PRD-oss-deployment.md`, and `docs/active/PRD-extended-write-features.md`.
-**Repo:** `graph-writeback-mcp`
-**Server:** `drive-writeback` (second server in the monorepo, after `outlook-writeback`)
 **Owner:** Keith Mendoza
-**Last updated:** 2026-08-06
+**Status:** Completed
+**Target platform:** Azure
+**Language:** C#
+**Target clients:** Claude Desktop, Claude Cowork, claude.ai
+**Repo location:** `sapidus-writeback-mcp/drive-writeback/` (one server folder in the `sapidus-writeback-mcp` monorepo — see `../REPO-CONVENTIONS.md` for the cross-server rules this PRD inherits)
 
 ---
 

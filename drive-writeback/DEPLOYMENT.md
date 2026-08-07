@@ -241,7 +241,33 @@ Also set `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<server>-func.azurewebsit
 ### `authsettingsV2` via ARM REST PUT
 
 `az webapp auth update` fails on an app already on auth v1 (`Cannot use auth v2 commands when the app is using auth v1`) — go straight to the ARM REST PUT:
+
+PowerShell:
+```powershell
+az rest --method PUT `
+  --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func/config/authsettingsV2?api-version=2022-03-01" `
+  --body '{
+    "properties": {
+      "platform": { "enabled": true },
+      "globalValidation": { "requireAuthentication": true, "unauthenticatedClientAction": "Return401" },
+      "identityProviders": {
+        "azureActiveDirectory": {
+          "enabled": true,
+          "registration": {
+            "clientId": "<connector-app-id>",
+            "clientSecretSettingName": "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET",
+            "openIdIssuer": "https://login.microsoftonline.com/<tenant-id>/v2.0"
+          },
+          "validation": { "defaultAuthorizationPolicy": { "allowedPrincipals": {} }, "jwtClaimChecks": {} }
+        },
+        "facebook": {"enabled": false}, "gitHub": {"enabled": false}, "google": {"enabled": false},
+        "legacyMicrosoftAccount": {"enabled": false}, "twitter": {"enabled": false}, "apple": {"enabled": false}
+      }
+    }
+  }'
 ```
+bash/Git Bash:
+```bash
 az rest --method PUT \
   --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func/config/authsettingsV2?api-version=2022-03-01" \
   --body '{

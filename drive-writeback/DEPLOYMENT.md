@@ -236,6 +236,8 @@ Store the resulting `password` as the `drive-writeback-connector-secret` Key Vau
 
 Also set `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user` — without it, the `401` response's `WWW-Authenticate` header comes back bare (no `scope`, no `resource_metadata`), breaking RFC 9728 discovery for any client relying on that header rather than probing the PRM endpoint directly.
 
+**If you're also setting up a custom domain, read the "Custom domain" section below first** and register `identifierUris`/`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` against the final hostname once, here, rather than the `azurewebsites.net` one — that avoids the swap dance that section otherwise walks through.
+
 ### `authsettingsV2` via ARM REST PUT
 
 `az webapp auth update` fails on an app already on auth v1 (`Cannot use auth v2 commands when the app is using auth v1`) — go straight to the ARM REST PUT:
@@ -278,3 +280,35 @@ Restart after applying either of the above: `az functionapp restart --resource-g
 1. No `Authorization` header, correct `Accept: application/json, text/event-stream` → `401` plus `WWW-Authenticate: Bearer ... resource_metadata="https://drive-writeback-func.azurewebsites.net/.well-known/oauth-protected-resource/runtime/webhooks/mcp"`.
 2. `GET /.well-known/oauth-protected-resource/runtime/webhooks/mcp` → the PRM document above.
 3. Add the connector in Claude Desktop / claude.ai with the server URL, Connector app's `appId` as Client ID, and the secret from above as Client Secret — confirm a real Entra sign-in/consent redirect completes and the connector shows "Connected." A `get_item` or dry-run write tool call end to end is the most reliable confirmation of a valid bearer token reaching the MCP extension — a raw `curl` can't easily manufacture one.
+
+## Custom domain
+
+Same phase `outlook-writeback` already went through — see `outlook-writeback/DEPLOYMENT.md`'s own "Custom domain" section for the original writeup this one mirrors. **No application source code change is required for any of this** — `drive-writeback`'s C# source has no hostname string literals anywhere (confirmed by grepping `Program.cs`, `DriveWriteback.Bootstrap/Program.cs`, `host.json`, and everything under `DriveWriteback.Graph/` and `shared/Sapidus.Writeback.Shared/`); the MCP extension's OAuth resource/audience/issuer/PRM-endpoint/`WWW-Authenticate` behavior is entirely handled by Azure's Easy Auth v2 platform, configured via the app settings and Entra app fields below, not by any code in this repo. This section is Azure/Entra config only.
+
+**Naming convention:** each server in this monorepo is already fully isolated per `../REPO-CONVENTIONS.md` §3 — own resource group, own Function App, own Entra app. A custom domain doesn't change that: the convention is a **flat subdomain per server**, mirroring the `<server>-rg`/`<server>-func` pattern — e.g. `drive-writeback.example.com`, never nested under another server's domain.
+
+**Expect a cutover, not a coexistence.** Once the custom domain is working end to end (DNS, managed certificate, Easy Auth discovery, and a fresh OAuth authorize), `drive-writeback-func.azurewebsites.net` stops working for OAuth-authenticated MCP clients — it still resolves and serves traffic, but a fresh authorize against it hits the same class of error this work is fixing, mirrored. Plan to migrate every connected client in one pass: for this server that's just Claude Desktop and claude.ai (no CLI registration exists against this Function App — see "Multi-client OAuth" above).
+
+**DNS + managed certificate (Azure portal):** add a CNAME (`<subdomain>` → `drive-writeback-func.azurewebsites.net`) plus an `asuid.<subdomain>` TXT record (the domain-verification ID, from the "Add custom domain" dialog) at your DNS provider, then in the portal: `drive-writeback-func` → **Settings** → **Custom domains** → **Add custom domain** → domain provider **All other domain services** (or your provider if listed) → enter the hostname → **TLS/SSL certificate: App Service Managed Certificate**, **SNI SSL** → **Validate** once both records show green → **Add**. Wait up to ~10 minutes for the managed cert to bind. No Azure CLI support for Flex Consumption's site-scoped certificate model as of the docs current at research time (2026-05-18) — this has to go through the portal or an ARM/Bicep template.
+
+**Reconciling with Easy Auth — swap, not add, in the same pass.** The "Drive Writeback MCP Connector" app is self-referencing the same way `outlook-writeback`'s is, even without a CLI registration: Claude Desktop/claude.ai's confidential-client flow (`web.redirectUris` + client secret) still requests a token whose audience is the Connector app's own `identifierUri`. Entra only resolves that unambiguously when there's exactly one candidate `identifierUri` per requested scope, which rules out the two obvious approaches before the working one:
+
+1. **Wrong — add the new hostname's `identifierUris` alongside the old ones:** breaks the already-working connection with `AADSTS90009: Application '<app-id>' is requesting a token for itself. This scenario is supported only if resource is specified using the GUID based Application ID URI.`
+2. **Wrong — leave `identifierUris` and `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` alone entirely:** a `401` against the new hostname still advertises the old hostname's scope (`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` is a single static value, not derived per-request — only the PRM document's `resource` field is dynamic, from the request's Host header). A cached-token reconnect can work anyway, masking the problem; a later fresh authorize fails with `OAuth error: invalid_target - AADSTS9010010: The resource parameter provided in the request doesn't match with the requested scopes`.
+3. **Right — swap, not add, in the same pass:**
+   ```
+   az rest --method PATCH \
+     --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+     --body '{"identifierUris":[
+       "https://<subdomain>.example.com",
+       "https://<subdomain>.example.com/runtime/webhooks/mcp"
+     ]}'
+
+   az functionapp config appsettings set \
+     --name drive-writeback-func \
+     --resource-group drive-writeback-rg \
+     --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
+   ```
+   Both changes have to land together — updating only `identifierUris` would leave the advertised scope pointing at a URI the app no longer registers, breaking auth for everyone until the second command lands. There's no way to make both hostnames work for OAuth at once on this self-referencing app; true dual-hostname support would need a non-self-referencing app split (separate app for the API vs. the client), not attempted here.
+
+**How to confirm it worked:** an unauthenticated request against the new hostname should return `401` with `WWW-Authenticate`'s `scope` and the PRM document's `resource`/`scopes_supported` all reading the new hostname — they must agree. Then run a fresh (not reconnect) authorize on both client surfaces this server has: Claude Desktop (a confidential client — this needs a remove-and-re-add of the connector, an in-place URL edit isn't enough) and claude.ai's connector UI. The old hostname's `401` will now mirror the new hostname's scope back, so a fresh authorize there fails with the same `AADSTS9010010` in reverse — expected, per the cutover tradeoff above.

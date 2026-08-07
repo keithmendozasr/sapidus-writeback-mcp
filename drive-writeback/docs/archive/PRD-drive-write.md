@@ -119,6 +119,8 @@ Requires explicit in-chat user confirmation before execution — the same postur
 
 Deletes route to the recycle bin, which lowers blast radius considerably. Note the recycle bin differs by drive type (§8).
 
+**Note on what actually shipped:** the signature above is v1's original design and doesn't match the implemented tool. `expected_name` alone only guards against drift — it doesn't stop the model from skipping the confirmation turn entirely, which is what "the same posture as `delete_event`" actually requires: a real two-call round trip. The implemented `delete_item` adds a fifth parameter, `confirmation_token: string?`, not listed above. The first call previews and returns a token; the second call must echo it back before the delete fires. The mechanism (a stateless, HMAC-signed token binding the two calls together) is `ConfirmationTokenService`, shared with `outlook-writeback`'s `delete_event` — see `drive-writeback/CLAUDE.md`'s "Key points for a future implementer" section for the full design, not repeated here.
+
 ---
 
 ## 5. Addressing model
@@ -160,10 +162,12 @@ Inherits the architecture in `REPO-CONVENTIONS.md` and `outlook-writeback/PRD.md
 - **Server app** holds delegated Graph scopes; refresh token seeded once interactively, stored in Key Vault, silently redeemed per call.
 - **Connector app** gates inbound caller access via Authorization Code + PKCE, validated by Azure Easy Auth (App Service Authentication v2).
 - **OBO deliberately excluded** — same reasoning as `outlook-writeback`.
-- **`/admin/reconnect-graph`** endpoint within the same Function app for refresh-token re-seeding.
+- ~~`/admin/reconnect-graph` endpoint within the same Function app for refresh-token re-seeding.~~ **Not built — superseded.** No in-Function-App admin endpoint exists. Re-seeding instead re-runs the same one-time `DriveWriteback.Bootstrap` console tool used for initial seeding (see `DEPLOYMENT.md`'s "One-time bootstrap" section) — same outcome this bullet intended, simpler mechanism, one fewer authenticated surface exposed on the deployed Function App.
 - **Entra display name:** "Drive Writeback MCP" — no client name, consistent with the convention.
 
-The tenant is a **managed domain** (cloud authentication, not federated to on-prem ADFS). This matters in one specific way: the one-time interactive seeding flow and the `/admin/reconnect-graph` re-seed both run as plain Entra web sign-ins with no federation hop, WS-Fed redirect, or on-prem STS availability dependency. The seeding design carries over from `outlook-writeback` unchanged.
+The tenant is a **managed domain** (cloud authentication, not federated to on-prem ADFS). This matters in one specific way: the one-time interactive seeding flow and the `DriveWriteback.Bootstrap` re-seed both run as plain Entra web sign-ins with no federation hop, WS-Fed redirect, or on-prem STS availability dependency. The seeding design carries over from `outlook-writeback` unchanged.
+
+**Deployed and live.** The Connector app ("Drive Writeback MCP Connector") and Easy Auth are live in production — see `DEPLOYMENT.md`'s "Multi-client OAuth via Easy Auth + Entra ID" section. This server has since also completed the same custom-domain cutover `outlook-writeback` went through (`DEPLOYMENT.md`'s "Custom domain" section): the deployed Function App now serves OAuth through a custom hostname, and `<server>-func.azurewebsites.net` no longer supports a fresh authorize as a result. Cost-management hardening — a Cost Management budget alert on `<server>-rg`, mirroring `outlook-writeback`'s — has **not** yet been added for this server; don't assume it's in place.
 
 ### Graph delegated permissions
 
@@ -231,7 +235,7 @@ Required controls:
 4. **Mandatory `if_match` on content replacement.** See §4.4.
 5. **Size cap.** `MaxContentBytes`, enforced before the Graph call.
 6. **Recycle bin, never permanent delete.**
-7. **Structured audit log.** Every write emits: tool, drive ID, site ID, resolved path, item ID, eTag before/after, SharePoint version before/after, caller OID from the Easy Auth token, outcome. Written to Application Insights. This is the recovery path when something goes wrong at 11pm.
+7. **Structured audit log.** Every write emits: tool, drive ID, site ID, resolved path, item ID, eTag before/after, SharePoint version before/after, caller OID from the Easy Auth token, outcome. Written to Application Insights. This is the recovery path when something goes wrong at 11pm. **Implemented as a minimal version, not the full design above.** `DriveWriteService` emits one `ILogger` line per call — tool name, resolved path or ID, outcome, and eTag where relevant (`if_match` doubles as the eTag-before value on `update_file_content`; `etag-after` is logged on create/update) — which Application Insights captures automatically for a deployed Function App; no separate audit-log plumbing was built. Not yet captured: drive ID (every log line is silent on which drive was targeted), site ID (moot today — OneDrive-only, no SharePoint sites in scope), and caller OID from the Easy Auth token. The last was deliberately deferred pending boundary-7b's deployment (`DriveWriteService.cs`'s own doc comment says as much) and remains unimplemented even though boundary-7b is now live (see §6) — a real gap, not a stale note. `DriveItemDeletionService`'s preview and confirm steps emit no log lines of their own; only the final `DriveWriteService.DeleteItemAsync` call is logged.
 8. **Dry-run mode.** Server-level config flag that validates and resolves but does not mutate. Invaluable during Phase 1 and for testing against the live tenant before trusting writes.
 
 ---
@@ -277,7 +281,7 @@ Unchanged from `outlook-writeback`:
 - Whether a content PUT to a path whose parent is missing auto-vivifies the parent tree or 404s. **Resolved: it auto-vivifies** (`DriveWriteServiceE2ETests.ContentPut_to_a_missing_parent_is_an_open_question`). Moot for this server's own behavior either way — `CreateFileAsync` guards against a missing parent before ever reaching Graph — but now a confirmed fact rather than an open one.
 
 **Phase 2 — Mutation surface**
-`update_file_content`, `rename_item`, `move_item`, `delete_item`. **Implemented and deployed** — all confirmed working end to end from Claude Desktop, including the eTag-quoting fix (see `drive-writeback/CLAUDE.md`). All 12 E2E tests (the 3 original Phase 0 spikes plus 9 added across Phase 1/2) now pass against a live tenant, including the new Phase 2 round trips: `rename_item`, `move_item`, delete-idempotency, the `update_file_content` dry-run/real round trip, and the full `delete_item` preview-then-confirm confirmation flow through `DriveItemDeletionService`.
+`update_file_content`, `rename_item`, `move_item`, `delete_item`. **Implemented and deployed** — all confirmed working end to end from Claude Desktop, including the eTag-quoting fix (see `drive-writeback/CLAUDE.md`). 12 E2E tests (the 3 original Phase 0 spikes plus 9 added across Phase 1/2) passed against a live tenant at the time this phase shipped, including the new Phase 2 round trips: `rename_item`, `move_item`, delete-idempotency, the `update_file_content` dry-run/real round trip, and the full `delete_item` preview-then-confirm confirmation flow through `DriveItemDeletionService`. A 13th E2E test was added afterward, confirming the SharePoint-rejection guard's allow-list — see `drive-writeback/CLAUDE.md`'s Status section for that later addition; it isn't part of this phase's own scope.
 
 **Phase 3 — SharePoint hardening**
 Not started. Full scope moved to `docs/active/PRD-sharepoint-support.md`. Until it lands, the server actively rejects SharePoint document library drives (`ResolveDriveIdAsync` in `DriveGraphClient.cs`, `SharePointDriveNotSupportedException`) rather than operate against them with none of this hardening in place — a deliberate scope decision, not silent neglect. See `drive-writeback/CLAUDE.md`'s Status section for current state.

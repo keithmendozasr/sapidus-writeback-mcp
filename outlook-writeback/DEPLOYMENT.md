@@ -179,9 +179,12 @@ Each server in this monorepo is already fully isolated per `../REPO-CONVENTIONS.
 1. **Wrong — add the new hostname's `identifierUris` alongside the old ones:** a PATCH to 4 entries (2 old forms + 2 new) broke the already-working connection with `AADSTS90009: Application '<app-id>' is requesting a token for itself. This scenario is supported only if resource is specified using the GUID based Application ID URI.` Fix at the time: revert to exactly the original 2 entries.
 2. **Wrong — leave `identifierUris` and `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` alone entirely:** with `identifierUris` back to the old hostname only, a `401` against the *new* hostname still advertised the *old* hostname's scope (`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` is a single static value, not derived per-request — only the PRM document's `resource` field is dynamic, from the request's Host header). A cached-token reconnect worked anyway, masking the problem; a later fresh authorize failed with `OAuth error: invalid_target - AADSTS9010010: The resource parameter provided in the request doesn't match with the requested scopes` — a client sending both a `resource` (matching the new hostname) and a `scope` (matching the old one) is asking Entra for two things that disagree.
 3. **Right — swap, not add, in the same pass:**
-   ```
+
+   bash/Git Bash (as originally run for this server):
+   ```bash
    az rest --method PATCH \
      --url "https://graph.microsoft.com/v1.0/applications/<object-id>" \
+     --headers "Content-Type=application/json" \
      --body '{"identifierUris":[
        "https://<server>.example.com",
        "https://<server>.example.com/runtime/webhooks/mcp"
@@ -192,6 +195,18 @@ Each server in this monorepo is already fully isolated per `../REPO-CONVENTIONS.
      --resource-group <server>-rg \
      --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<server>.example.com/runtime/webhooks/mcp/access_as_user
    ```
+   PowerShell — **write the body to a file and pass `--body @file`, not an inline multi-line quoted string.** Confirmed live on `drive-writeback`'s identical PATCH (see that server's `DEPLOYMENT.md` "Custom domain" section): a plain `'...'` body spanning multiple backtick-continued lines either leaves the console stuck on an unterminated line, or — once it does submit — gets mangled by `az.cmd` (a batch file, reparsed by `cmd.exe`) into something Graph reports as unparseable JSON, even with the `Content-Type` header set correctly. This has not been re-run against `outlook-writeback`'s own tenant, but the same `az.cmd` mechanics apply:
+   ```powershell
+   $body = '{"identifierUris":["https://<server>.example.com","https://<server>.example.com/runtime/webhooks/mcp"]}'
+   $bodyFile = New-TemporaryFile
+   Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+   az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+
+   az functionapp config appsettings set --name <server>-func --resource-group <server>-rg --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<server>.example.com/runtime/webhooks/mcp/access_as_user
+   ```
+   **`--headers "Content-Type=application/json"` is required** — Microsoft Graph rejects a PATCH/PUT that has a `--body` but no explicit `Content-Type` (`BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration`), even though `az rest` sends valid JSON. ARM (`management.azure.com`) calls elsewhere in this doc haven't been observed to need this, only Graph (`graph.microsoft.com`) ones.
+
    Both changes have to land together — updating only `identifierUris` would leave the advertised scope pointing at a URI the app no longer registers, breaking auth for everyone until the second command lands. There's no way to make both hostnames work for OAuth at once on this self-referencing app. A future server needing true dual-hostname support would need a non-self-referencing app split (separate app for the API vs. the public client) instead — not attempted here.
 
 **How to confirm it worked, across all three client surfaces:** an unauthenticated request against the new hostname should return `401` with `WWW-Authenticate`'s `scope` and the PRM document's `resource`/`scopes_supported` all reading the new hostname — they must agree. Then run a fresh (not reconnect) authorize on each client you use: Claude Code CLI, Claude Desktop (a confidential client — this needs a remove-and-re-add, an in-place URL edit isn't enough), and claude.ai's connector UI. The old hostname's `401` will now mirror the new hostname's scope back, so a fresh authorize there fails with the same `AADSTS9010010` in reverse. That's expected, per the cutover tradeoff above.
@@ -272,7 +287,7 @@ Separate from the "Outlook Writeback MCP" app (boundary 7a, Graph delegation) �
 ```
 az ad app create --display-name "Outlook Writeback MCP Connector" --sign-in-audience AzureADMyOrg --output json
 ```
-Then, against the returned object ID (not the appId) — `az ad app update` doesn't cover all of these fields, so use direct Graph PATCH via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>`:
+Then, against the returned object ID (not the appId) — `az ad app update` doesn't cover all of these fields, so use direct Graph PATCH via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>` — **each of the PATCH calls below needs `--headers "Content-Type=application/json"` alongside `--body`**, or Graph rejects it with `BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration` even though the body is valid JSON:
 
 1. Set `{"api": {"requestedAccessTokenVersion": 2}}` **before** setting `identifierUris` — Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy` otherwise.
 2. Set `identifierUris` to your server's hostname, both with and without the `/runtime/webhooks/mcp` suffix (`https://<server>-func.azurewebsites.net` and `.../runtime/webhooks/mcp`) — the MCP extension resource-checks against the full route, not just the host, so both forms are needed to avoid `AADSTS9010010`. If you're also setting up a custom domain, read that section first and register the final hostname once rather than swapping it later.
@@ -282,6 +297,7 @@ Then, against the returned object ID (not the appId) — `az ad app update` does
    ```
    az rest --method PATCH \
      --url "https://graph.microsoft.com/v1.0/applications/<object-id>" \
+     --headers "Content-Type=application/json" \
      --body '{"web":{"redirectUris":["https://claude.ai/api/mcp/auth_callback"]}}'
    ```
 

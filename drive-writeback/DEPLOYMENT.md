@@ -160,6 +160,12 @@ Mirrors `outlook-writeback/DEPLOYMENT.md`'s own "Resources provisioned" section 
        DRIVE_WRITEBACK_MAX_CONTENT_BYTES=1048576 \
        DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY="@Microsoft.KeyVault(SecretUri=https://<server>-kv.vault.azure.net/secrets/delete-confirmation-signing-key/)"
    ```
+   The truncation bug above is specific to PowerShell's backtick continuation, but it costs nothing to verify here too — same check, works identically in either shell:
+   ```bash
+   az functionapp config appsettings list --resource-group <server>-rg --name <server>-func --query "[?name=='DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY'].value" -o tsv
+   ```
+   The value should end in `secrets/delete-confirmation-signing-key/)` — closing paren included.
+
    Leave `DRIVE_WRITEBACK_DRY_RUN=true` until you've confirmed writes behave as expected against the live tenant, then flip it to `false` (no code change needed — see `Program.cs`). **On the current production deployment this has already been done** — `DRIVE_WRITEBACK_DRY_RUN` is `false`, real writes confirmed working end to end from Claude Desktop and claude.ai (see `CLAUDE.md`'s Status section); this step's `true` starting value only matters when standing the server up fresh. Aside from the confirmation-signing-key reference, no other Key Vault-reference settings are used — the refresh token is read/written live via the Key Vault Secrets SDK (see `Auth/KeyVaultRefreshTokenStore.cs`). This also means the Function App's managed identity needs **Key Vault Secrets User** (read-only is enough here) in addition to the Secrets Officer grant from step 5, if not already covered by it.
 9. Application Insights — created and linked automatically by `az functionapp create`; no separate step needed.
 
@@ -218,30 +224,127 @@ Separate from "Drive Writeback MCP" (boundary 7a, Graph delegation, registered a
 ```
 az ad app create --display-name "Drive Writeback MCP Connector" --sign-in-audience AzureADMyOrg --output json
 ```
-Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>`:
+Then, against the returned object id, via `az rest --method PATCH` against `https://graph.microsoft.com/v1.0/applications/<object-id>` — **each of the four calls below needs `--headers "Content-Type=application/json"` alongside `--body`**, or Graph rejects it with `BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration` even though the body is valid JSON. On PowerShell, the header alone isn't enough — `az.cmd` (a batch file, reparsed by `cmd.exe`) mangles a quoted JSON argument, so every PowerShell form below writes the body to a temp file and passes `--body @<file>` instead (the same confirmed-working pattern the "Custom domain" section below relies on). bash/Git Bash doesn't share that quoting failure mode, so an inline `--body '...'` is fine there.
 
-1. `{"api": {"requestedAccessTokenVersion": 2}}` **first**, before `identifierUris` — Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy` otherwise.
-2. `identifierUris` to both `https://drive-writeback-func.azurewebsites.net` and `.../runtime/webhooks/mcp` — the MCP extension resource-checks against the full route, not just the host.
-3. An "Expose an API" scope: `{"api": {"oauth2PermissionScopes": [{"type": "User", "value": "access_as_user", "isEnabled": true, "id": "<new-guid>", "adminConsentDisplayName": "...", "adminConsentDescription": "...", "userConsentDisplayName": "...", "userConsentDescription": "..."}]}}`.
-4. `web.redirectUris: ["https://claude.ai/api/mcp/auth_callback"]` — required for both Desktop/Cowork and claude.ai's connector UI, which both present a client secret at token exchange (confidential client, hence `web`, not `publicClient`).
+**1. `requestedAccessTokenVersion` — must land first, before `identifierUris`**, or Entra rejects a same-tenant HTTPS App ID URI with `InvalidUniqueTenantIdentifierAsPerAppPolicy`:
+
+PowerShell:
+```powershell
+$body = '{"api": {"requestedAccessTokenVersion": 2}}'
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body '{"api": {"requestedAccessTokenVersion": 2}}'
+```
+
+**2. `identifierUris`** — both `https://<server>-func.azurewebsites.net` and `.../runtime/webhooks/mcp` — the MCP extension resource-checks against the full route, not just the host:
+
+PowerShell:
+```powershell
+$body = '{"identifierUris":["https://<server>-func.azurewebsites.net","https://<server>-func.azurewebsites.net/runtime/webhooks/mcp"]}'
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body '{"identifierUris":["https://<server>-func.azurewebsites.net","https://<server>-func.azurewebsites.net/runtime/webhooks/mcp"]}'
+```
+
+**3. An "Expose an API" scope.** Needs a fresh GUID for the scope `id` — generate one however's convenient (PowerShell's `[guid]::NewGuid()`; on bash/Git Bash, `python3 -c "import uuid; print(uuid.uuid4())"` if Python's available, or any other UUID generator):
+
+PowerShell:
+```powershell
+$scopeId = [guid]::NewGuid()
+$body = "{`"api`": {`"oauth2PermissionScopes`": [{`"type`": `"User`", `"value`": `"access_as_user`", `"isEnabled`": true, `"id`": `"$scopeId`", `"adminConsentDisplayName`": `"Access <server> MCP as the signed-in user`", `"adminConsentDescription`": `"Allows the app to call <server> MCP tools on behalf of the signed-in user.`", `"userConsentDisplayName`": `"Access <server> MCP as you`", `"userConsentDescription`": `"Allows the app to call <server> MCP tools on your behalf.`"}]}}"
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+scope_id=$(python3 -c "import uuid; print(uuid.uuid4())")
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body "{\"api\": {\"oauth2PermissionScopes\": [{\"type\": \"User\", \"value\": \"access_as_user\", \"isEnabled\": true, \"id\": \"$scope_id\", \"adminConsentDisplayName\": \"Access <server> MCP as the signed-in user\", \"adminConsentDescription\": \"Allows the app to call <server> MCP tools on behalf of the signed-in user.\", \"userConsentDisplayName\": \"Access <server> MCP as you\", \"userConsentDescription\": \"Allows the app to call <server> MCP tools on your behalf.\"}]}}"
+```
+
+**4. `web.redirectUris`** — required for both Desktop/Cowork and claude.ai's connector UI, which both present a client secret at token exchange (confidential client, hence `web`, not `publicClient`):
+
+PowerShell:
+```powershell
+$body = '{"web": {"redirectUris": ["https://claude.ai/api/mcp/auth_callback"]}}'
+$bodyFile = New-TemporaryFile
+Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+```
+bash/Git Bash:
+```bash
+az rest --method PATCH \
+  --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+  --headers "Content-Type=application/json" \
+  --body '{"web": {"redirectUris": ["https://claude.ai/api/mcp/auth_callback"]}}'
+```
 
 No `publicClient.redirectUris` entry — that's only needed if the CLI is ever wired up against this app, which it currently isn't.
 
 ### Client secret
 
 ```
-az ad app credential reset --id <connector-app-id> --append --display-name "drive-writeback-connector-secret" --years 1 --output json
+az ad app credential reset --id <connector-app-id> --append --display-name "<server>-connector-secret" --years 1 --output json
 ```
-Store the resulting `password` as the `drive-writeback-connector-secret` Key Vault secret, referenced from a `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` app setting via `@Microsoft.KeyVault(SecretUri=...)` — same pattern as `DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY`. This secret is for Easy Auth's own server-side token exchange (and for pasting into Claude Desktop's/claude.ai's connector setup, which need it directly since Entra has no dynamic client registration) — it is not a CLI secret, since no CLI is registered against this app.
+Store the resulting `password` as the `<server>-connector-secret` Key Vault secret, referenced from a `MICROSOFT_PROVIDER_AUTHENTICATION_SECRET` app setting via `@Microsoft.KeyVault(SecretUri=...)` — same pattern as `DRIVE_WRITEBACK_CONFIRMATION_SIGNING_KEY`. This secret is for Easy Auth's own server-side token exchange (and for pasting into Claude Desktop's/claude.ai's connector setup, which need it directly since Entra has no dynamic client registration) — it is not a CLI secret, since no CLI is registered against this app.
 
-Also set `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user` — without it, the `401` response's `WWW-Authenticate` header comes back bare (no `scope`, no `resource_metadata`), breaking RFC 9728 discovery for any client relying on that header rather than probing the PRM endpoint directly.
+Also set `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<server>-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user` — without it, the `401` response's `WWW-Authenticate` header comes back bare (no `scope`, no `resource_metadata`), breaking RFC 9728 discovery for any client relying on that header rather than probing the PRM endpoint directly.
+
+**If you're also setting up a custom domain, read the "Custom domain" section below first** and register `identifierUris`/`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` against the final hostname once, here, rather than the `azurewebsites.net` one — that avoids the swap dance that section otherwise walks through.
 
 ### `authsettingsV2` via ARM REST PUT
 
 `az webapp auth update` fails on an app already on auth v1 (`Cannot use auth v2 commands when the app is using auth v1`) — go straight to the ARM REST PUT:
+
+PowerShell:
+```powershell
+az rest --method PUT `
+  --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func/config/authsettingsV2?api-version=2022-03-01" `
+  --body '{
+    "properties": {
+      "platform": { "enabled": true },
+      "globalValidation": { "requireAuthentication": true, "unauthenticatedClientAction": "Return401" },
+      "identityProviders": {
+        "azureActiveDirectory": {
+          "enabled": true,
+          "registration": {
+            "clientId": "<connector-app-id>",
+            "clientSecretSettingName": "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET",
+            "openIdIssuer": "https://login.microsoftonline.com/<tenant-id>/v2.0"
+          },
+          "validation": { "defaultAuthorizationPolicy": { "allowedPrincipals": {} }, "jwtClaimChecks": {} }
+        },
+        "facebook": {"enabled": false}, "gitHub": {"enabled": false}, "google": {"enabled": false},
+        "legacyMicrosoftAccount": {"enabled": false}, "twitter": {"enabled": false}, "apple": {"enabled": false}
+      }
+    }
+  }'
 ```
+bash/Git Bash:
+```bash
 az rest --method PUT \
-  --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/drive-writeback-rg/providers/Microsoft.Web/sites/drive-writeback-func/config/authsettingsV2?api-version=2022-03-01" \
+  --url "https://management.azure.com/subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func/config/authsettingsV2?api-version=2022-03-01" \
   --body '{
     "properties": {
       "platform": { "enabled": true },
@@ -264,17 +367,64 @@ az rest --method PUT \
 ```
 Leave `allowedAudiences` and `defaultAuthorizationPolicy.allowedApplications` out deliberately — they don't fix the bare-`WWW-Authenticate` symptom (that's `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`'s job) and add nothing here. Explicitly disabling the other built-in identity providers does matter — it stops the ARM API silently defaulting them into an unconfigured-but-enabled state.
 
-Restart after applying either of the above: `az functionapp restart --resource-group drive-writeback-rg --name drive-writeback-func`.
+Restart after applying either of the above: `az functionapp restart --resource-group <server>-rg --name <server>-func`.
 
 ### PRM endpoint — no custom code needed
 
 `GET /.well-known/oauth-protected-resource/runtime/webhooks/mcp` is served natively by Easy Auth v2 once the above is live:
 ```json
-{"resource":"https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp","authorization_servers":["https://login.microsoftonline.com/<tenant-id>/v2.0"],"scopes_supported":["https://drive-writeback-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user"]}
+{"resource":"https://<server>-func.azurewebsites.net/runtime/webhooks/mcp","authorization_servers":["https://login.microsoftonline.com/<tenant-id>/v2.0"],"scopes_supported":["https://<server>-func.azurewebsites.net/runtime/webhooks/mcp/access_as_user"]}
 ```
 
 ### Validation checks
 
-1. No `Authorization` header, correct `Accept: application/json, text/event-stream` → `401` plus `WWW-Authenticate: Bearer ... resource_metadata="https://drive-writeback-func.azurewebsites.net/.well-known/oauth-protected-resource/runtime/webhooks/mcp"`.
+1. No `Authorization` header, correct `Accept: application/json, text/event-stream` → `401` plus `WWW-Authenticate: Bearer ... resource_metadata="https://<server>-func.azurewebsites.net/.well-known/oauth-protected-resource/runtime/webhooks/mcp"`.
 2. `GET /.well-known/oauth-protected-resource/runtime/webhooks/mcp` → the PRM document above.
 3. Add the connector in Claude Desktop / claude.ai with the server URL, Connector app's `appId` as Client ID, and the secret from above as Client Secret — confirm a real Entra sign-in/consent redirect completes and the connector shows "Connected." A `get_item` or dry-run write tool call end to end is the most reliable confirmation of a valid bearer token reaching the MCP extension — a raw `curl` can't easily manufacture one.
+
+## Custom domain
+
+Same phase `outlook-writeback` already went through — see `outlook-writeback/DEPLOYMENT.md`'s own "Custom domain" section for the original writeup this one mirrors. **No application source code change is required for any of this** — `drive-writeback`'s C# source has no hostname string literals anywhere (confirmed by grepping `Program.cs`, `DriveWriteback.Bootstrap/Program.cs`, `host.json`, and everything under `DriveWriteback.Graph/` and `shared/Sapidus.Writeback.Shared/`); the MCP extension's OAuth resource/audience/issuer/PRM-endpoint/`WWW-Authenticate` behavior is entirely handled by Azure's Easy Auth v2 platform, configured via the app settings and Entra app fields below, not by any code in this repo. This section is Azure/Entra config only.
+
+**Naming convention:** each server in this monorepo is already fully isolated per `../REPO-CONVENTIONS.md` §3 — own resource group, own Function App, own Entra app. A custom domain doesn't change that: the convention is a **flat subdomain per server**, mirroring the `<server>-rg`/`<server>-func` pattern — e.g. `drive-writeback.example.com`, never nested under another server's domain.
+
+**Expect a cutover, not a coexistence.** Once the custom domain is working end to end (DNS, managed certificate, Easy Auth discovery, and a fresh OAuth authorize), `<server>-func.azurewebsites.net` stops working for OAuth-authenticated MCP clients — it still resolves and serves traffic, but a fresh authorize against it hits the same class of error this work is fixing, mirrored. Plan to migrate every connected client in one pass: for this server that's just Claude Desktop and claude.ai (no CLI registration exists against this Function App — see "Multi-client OAuth" above).
+
+**DNS + managed certificate (Azure portal):** add a CNAME (`<subdomain>` → `<server>-func.azurewebsites.net`) plus an `asuid.<subdomain>` TXT record (the domain-verification ID, from the "Add custom domain" dialog) at your DNS provider, then in the portal: `<server>-func` → **Settings** → **Custom domains** → **Add custom domain** → domain provider **All other domain services** (or your provider if listed) → enter the hostname → **TLS/SSL certificate: App Service Managed Certificate**, **SNI SSL** → **Validate** once both records show green → **Add**. Wait up to ~10 minutes for the managed cert to bind. No Azure CLI support for Flex Consumption's site-scoped certificate model as of the docs current at research time (2026-05-18) — this has to go through the portal or an ARM/Bicep template.
+
+**Reconciling with Easy Auth — swap, not add, in the same pass.** The "Drive Writeback MCP Connector" app is self-referencing the same way `outlook-writeback`'s is, even without a CLI registration: Claude Desktop/claude.ai's confidential-client flow (`web.redirectUris` + client secret) still requests a token whose audience is the Connector app's own `identifierUri`. Entra only resolves that unambiguously when there's exactly one candidate `identifierUri` per requested scope, which rules out the two obvious approaches before the working one:
+
+1. **Wrong — add the new hostname's `identifierUris` alongside the old ones:** breaks the already-working connection with `AADSTS90009: Application '<app-id>' is requesting a token for itself. This scenario is supported only if resource is specified using the GUID based Application ID URI.`
+2. **Wrong — leave `identifierUris` and `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` alone entirely:** a `401` against the new hostname still advertises the old hostname's scope (`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` is a single static value, not derived per-request — only the PRM document's `resource` field is dynamic, from the request's Host header). A cached-token reconnect can work anyway, masking the problem; a later fresh authorize fails with `OAuth error: invalid_target - AADSTS9010010: The resource parameter provided in the request doesn't match with the requested scopes`.
+3. **Right — swap, not add, in the same pass:**
+
+   PowerShell — **write the body to a file and pass `--body @file` rather than an inline quoted string.** Both `--headers "Content-Type=application/json"` alone (Graph needs it — see below) and a plain multi-line `'...'` string spliced across backtick-continued lines (fragile in this exact way — the console can get stuck waiting on an unterminated line, and even when it does submit, Graph reports it can't parse the JSON) were tried and failed live against this tenant; the file-based form below is the one that actually worked:
+   ```powershell
+   $body = '{"identifierUris":["https://<subdomain>.example.com","https://<subdomain>.example.com/runtime/webhooks/mcp"]}'
+   $bodyFile = New-TemporaryFile
+   Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+   az rest --method PATCH --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" --headers "Content-Type=application/json" --body "@$bodyFile"
+
+   az functionapp config appsettings set --name <server>-func --resource-group <server>-rg --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
+   ```
+   bash/Git Bash — untested against a live tenant during this pass, but kept as the multi-line form since bash doesn't share PowerShell's `az.cmd`/console quoting failure modes documented above:
+   ```bash
+   az rest --method PATCH \
+     --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
+     --headers "Content-Type=application/json" \
+     --body '{"identifierUris":[
+       "https://<subdomain>.example.com",
+       "https://<subdomain>.example.com/runtime/webhooks/mcp"
+     ]}'
+
+   az functionapp config appsettings set \
+     --name <server>-func \
+     --resource-group <server>-rg \
+     --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
+   ```
+   **`--headers "Content-Type=application/json"` is required** — Microsoft Graph rejects a PATCH/PUT with a `--body` but no explicit `Content-Type` (`BadRequest: Write requests (excluding DELETE) must contain the Content-Type header declaration`), even though `az rest` sends valid JSON. ARM (`management.azure.com`) calls elsewhere in this doc haven't been observed to need this, only Graph (`graph.microsoft.com`) ones. On PowerShell, that header alone isn't sufficient either — confirmed live: adding just the header still failed with `BadRequest: Unable to read JSON request payload`, tracing back to how `az.cmd` (a batch file, reparsed by `cmd.exe`) handles a multi-line quoted argument. Writing the JSON to a file first and passing `--body @<file>` sidesteps the whole quoting chain and is the form confirmed working.
+
+   Both changes have to land together — updating only `identifierUris` would leave the advertised scope pointing at a URI the app no longer registers, breaking auth for everyone until the second command lands. There's no way to make both hostnames work for OAuth at once on this self-referencing app; true dual-hostname support would need a non-self-referencing app split (separate app for the API vs. the client), not attempted here.
+
+**How to confirm it worked:** an unauthenticated request against the new hostname should return `401` with `WWW-Authenticate`'s `scope` and the PRM document's `resource`/`scopes_supported` all reading the new hostname — they must agree. Then run a fresh (not reconnect) authorize on both client surfaces this server has: Claude Desktop (a confidential client — this needs a remove-and-re-add of the connector, an in-place URL edit isn't enough) and claude.ai's connector UI. The old hostname's `401` will now mirror the new hostname's scope back, so a fresh authorize there fails with the same `AADSTS9010010` in reverse — expected, per the cutover tradeoff above.

@@ -1,10 +1,11 @@
 # PRD — `drive-writeback` MCP Server
 
-**Status:** Draft (rev 3 — Phase 0 in progress)
-**Repo:** `graph-writeback-mcp`
-**Server:** `drive-writeback` (second server in the monorepo, after `outlook-writeback`)
 **Owner:** Keith Mendoza
-**Last updated:** 2026-08-03
+**Status:** Completed
+**Target platform:** Azure
+**Language:** C#
+**Target clients:** Claude Desktop, Claude Cowork, claude.ai
+**Repo location:** `sapidus-writeback-mcp/drive-writeback/` (one server folder in the `sapidus-writeback-mcp` monorepo — see `../REPO-CONVENTIONS.md` for the cross-server rules this PRD inherits)
 
 ---
 
@@ -12,7 +13,7 @@
 
 Anthropic's official Microsoft 365 connector provides read access to SharePoint documents and pages, but write operations against OneDrive and SharePoint document libraries are either absent or gated behind higher-tier plans. This server fills the write gap for file and folder manipulation, mirroring the pattern already established by `outlook-writeback`.
 
-Graph models OneDrive for Business and SharePoint document libraries under a single `driveItem` resource, and one server covers both. (Graph's `driveItem` model technically extends to personal OneDrive/MSA accounts too, but that's not reachable here — this server's Entra app registrations are single-tenant, work/school accounts only, per `REPO-CONVENTIONS.md`; a personal Microsoft account is a different identity type entirely and would require a different account-type registration. See open exploration item, deferred.) The differences that matter between OneDrive for Business and SharePoint are not in the item operations — they are in **addressing** (§5), **permissions** (§6), and **library-level behaviors that silently break naive file writes** (§8).
+Graph models OneDrive for Business and SharePoint document libraries under a single `driveItem` resource; **what's actually shipped (Phases 1–2) is OneDrive-only.** SharePoint document library support was part of this doc's original scope but is not built — it's tracked separately in `docs/active/PRD-sharepoint-support.md`, including the addressing/permissions differences and library-level behaviors that matter once SharePoint is in scope. (Personal Microsoft/MSA account support is a separate, unexplored gap — see `docs/active/PRD-oss-deployment.md`.)
 
 ---
 
@@ -25,22 +26,22 @@ Graph models OneDrive for Business and SharePoint document libraries under a sin
 5. Replace a file's content.
 6. Delete a file or directory.
 
-All six must work against **both** the user's OneDrive and SharePoint document libraries in the tenant.
+All six are implemented and shipped against the user's OneDrive (Phases 1–2, both deployed and confirmed working end to end from Claude Desktop and claude.ai).
 
-**Deliberately not what's shipping right now:** the running server rejects SharePoint document library drives outright (`ResolveDriveIdAsync`, `DriveGraphClient.cs`) rather than operate against them without Phase 3's hardening in place — see the Phase 3 note in §11 and `drive-writeback/CLAUDE.md`'s Status section. This goal stays the target for when Phase 3 lands; it does not describe the current deployment.
+**SharePoint document library support was part of this goal's original scope but is not built.** The running server rejects SharePoint document library drives outright (`ResolveDriveIdAsync`, `DriveGraphClient.cs`) rather than operate against them without proper hardening in place — see `docs/active/PRD-sharepoint-support.md`, which now owns that scope.
 
 ## 3. Non-goals (v1)
 
-- Resumable/chunked uploads for files > 4 MB.
-- Binary file content (images, PDFs, Office documents) — text/UTF-8 only in v1.
-- Copy operations (async, long-running; see §11 Phase 4).
-- SharePoint **lists**, list items, site pages, or metadata column values. Document library files and folders only.
+- Resumable/chunked uploads for files > 4 MB. Tracked in `docs/active/PRD-extended-write-features.md`.
+- Binary file content (images, PDFs, Office documents) — text/UTF-8 only in v1. Tracked in `docs/active/PRD-extended-write-features.md`.
+- Copy operations (async, long-running). Tracked in `docs/active/PRD-extended-write-features.md`.
+- SharePoint **lists**, list items, site pages, or metadata column values. Document library files and folders only. (Applies regardless of whether `docs/active/PRD-sharepoint-support.md` ever lands — lists stay out of scope either way.)
 - Sharing links, permissions management, or any operation that grants access to another principal. **Explicitly out of scope indefinitely** — see §9.
 - Read/search of file *content*. Handled by the official M365 connector.
 - Directory/file **discovery and selection** — enumerating sites, drives, or folder contents to find a target. This server assumes the drive/site/item to act on has already been identified by the caller (e.g. via the official M365 connector); it resolves and validates a given target, it does not browse for one.
 - Partial/diff-based content edits. Graph only supports whole-content replacement.
 - Permanent delete. Deletes route to the recycle bin, deliberately.
-- Cross-drive moves (Graph `PATCH` cannot do this; it requires copy + delete).
+- Cross-drive moves (Graph `PATCH` cannot do this; it requires copy + delete). Tracked in `docs/active/PRD-extended-write-features.md`.
 
 ---
 
@@ -122,7 +123,7 @@ Deletes route to the recycle bin, which lowers blast radius considerably. Note t
 
 ## 5. Addressing model
 
-With SharePoint in scope, addressing is the single largest design change from rev 1.
+With SharePoint originally in scope (see `docs/active/PRD-sharepoint-support.md`), addressing was the single largest design change from rev 1 — the resulting `drive_id`-based model already accommodates SharePoint without needing separate tooling, once that PRD's hardening lands.
 
 **Every tool takes an optional `drive_id`.** Omitted, it targets the signed-in user's OneDrive (`/me/drive`). Supplied, it targets `/drives/{drive-id}`. This keeps the common OneDrive case terse while making SharePoint a first-class target with no separate tool surface.
 
@@ -147,8 +148,7 @@ A single-string scheme (`sp://finance/Shared Documents/budget.xlsx`) would be te
 - Percent-encode path segments; reject characters OneDrive/SharePoint disallow (`" * : < > ? / \ |`) before hitting Graph.
 - Leading/trailing slashes normalized; `""`, `"/"`, `"root"` all resolve to the drive root.
 - No `..` traversal — reject rather than resolve.
-- **SharePoint URL length limits are stricter than OneDrive's** (~400 characters for the full decoded URL). Validate against the tighter limit for SharePoint drives rather than surfacing an opaque Graph 400.
-- SharePoint blocks certain file extensions at the library level. Detect the resulting error and surface it as a named condition.
+- SharePoint-only path rules (stricter URL length limit, blocked file extensions at the library level) are tracked in `docs/active/PRD-sharepoint-support.md`.
 
 ---
 
@@ -182,11 +182,7 @@ Document library files are `driveItem`s, and `Files.ReadWrite.All` is sufficient
 
 ### Consent and the open-source release
 
-Both `.All` scopes require **tenant admin consent**. It is a real issue for the planned OSS release: a user who is not a tenant admin cannot consent, and the server will fail at startup rather than degrade.
-
-**v1 requirement (cheap): detect and log, never fail blind.** At startup, after redeeming the seeded refresh token, inspect the granted-scopes claim and log a clear, specific entry (Application Insights, same pipeline as the §9 audit log) naming exactly which required scope is missing — e.g. "Sites.Read.All not granted; SharePoint tools will fail." This does not change runtime behavior: a SharePoint call still fails with Graph's own 403 if the scope is missing. The point is only that the *reason* is always discoverable in the log, never a mystery.
-
-**v2 requirement (deferred, §12 Q8): full graceful degradation.** Detect missing scopes and conditionally register tools, or have SharePoint tools return a clear "SharePoint scopes not consented; OneDrive-only mode" error surfaced to the model at call time, rather than a raw Graph 403 — with the missing-scope state also reflected in tool descriptions at registration time so the model doesn't attempt calls that cannot succeed. This is real work (scope introspection driving conditional registration) with zero benefit on an admin-owned tenant; it matters only for a future OSS deployer running with partial consent. Build when an actual OSS release is imminent, not before.
+Both `.All` scopes require **tenant admin consent** — a real issue for the planned OSS release, where a deployer who is not a tenant admin cannot consent. Not an issue on this server's actual deployment (owner-as-admin). Full scope covered in `docs/active/PRD-oss-deployment.md`.
 
 ---
 
@@ -198,7 +194,7 @@ Graph splits at 4 MB: simple `PUT .../content` at or below, resumable upload ses
 This is less constraining than it sounds. MCP tool arguments travel as JSON strings through the model's context; a 4 MB file is not something the model can hold or emit. The practical ceiling is far lower. Set an explicit `MaxContentBytes` config (proposed: **1 MB**) rather than letting the Graph limit be the de facto boundary.
 
 ### Content encoding
-UTF-8 text only in v1. A `content_encoding: "utf8" | "base64"` parameter is the natural v2 extension, but base64 through the context window is expensive enough that upload-from-URL is likely the better path.
+UTF-8 text only in v1. Binary content support (base64 encoding, upload-from-URL) is tracked in `docs/active/PRD-extended-write-features.md`.
 
 ### Throttling
 SharePoint and OneDrive throttle far more aggressively than Mail — and **SharePoint harder than OneDrive**, with limits applied per-user, per-app, and per-site-collection. Required:
@@ -217,19 +213,7 @@ SharePoint and OneDrive throttle far more aggressively than Mail — and **Share
 
 ## 8. SharePoint-specific behaviors
 
-These are the failure modes that do not exist on OneDrive and that will silently produce wrong-looking results if unhandled. Each needs explicit detection and a named error, not a pass-through Graph fault.
-
-**Required check-out.** Libraries can require check-out before edit. `update_file_content` against such a library fails, or succeeds into a state nobody else can see. `get_item` must return checkout state. Decision needed (§12, Q4): detect-and-fail, or expose `checkout`/`checkin` tools and manage the cycle.
-
-**Required metadata columns.** A library with required columns will accept an upload and leave the file **checked out to you in a draft state, invisible to everyone else**. This is the single most confusing SharePoint gotcha — the write "succeeds," the API returns 201, and the file effectively does not exist for other users. The server must detect this post-write and warn explicitly.
-
-**Content approval and minor versions.** Similar draft-state trap: the file is written but pending approval and not visible at the published version. Whether a two-stage `commit`/publish tool is needed to close this gap is open — see §12 Q9.
-
-**Versioning.** Libraries version by default. Every `update_file_content` creates a new version rather than overwriting history. This is a **safety win** — it is a genuine undo path that OneDrive personal does not reliably provide — and it should be noted in the audit log (version number before/after).
-
-**Two-stage recycle bin.** Deleted items go to the site recycle bin, then the site collection recycle bin, with a combined retention window (93 days by default). Recovery is possible but the path differs from OneDrive's. Document it; do not automate it in v1.
-
-**Co-authoring churn.** Real concurrent editors mean 412s from `if_match` will be routine rather than exceptional. The error message must make the re-read-and-retry loop obvious to the model.
+Not built — full scope (required check-out, required-metadata-column draft-state trap, content approval/versioning, two-stage recycle bin, co-authoring churn) moved to `docs/active/PRD-sharepoint-support.md` §3.
 
 ---
 
@@ -278,28 +262,28 @@ Unchanged from `outlook-writeback`:
 ## 11. Phasing
 
 **Phase 0 — Validation spikes**
-- Confirm `mkdir -p` approach (§4.4) against both a OneDrive and a SharePoint library. **Resolved for OneDrive, confirmed live.** Root cause: colon-path addressing (`Items["root"].ItemWithPath(path)`) of a folder immediately after creating it is not reliable — Graph's path-resolution index can lag behind the item actually existing, and a `/children` POST against an unresolved colon-path silently lands at the drive root rather than erroring. This is what caused earlier runs' `a`/`b`/`c` folders to land at the drive root instead of nesting, confirmed both by a diagnostic test logging each created item's actual `ParentReference.Path`/`Id` and by a direct OneDrive-web check. **Fix, now passing:** `CreateFolderPathAsync` chains by the item `id` each create returns rather than re-deriving a path string from segment names — id-based addressing needs no path resolution, so it isn't exposed to this at all. **Carries into Phase 1's `create_folder`/`get_item` design: prefer id-based addressing over colon-path addressing for anything just created in the same call chain.** (Two earlier diagnoses on this same failure — a "propagation lag on GET" theory, then a "colon-path GET itself is unreliable" theory — were both wrong, each built on top of the real bug without having isolated it, and both were briefly written into this doc as confirmed findings before being retracted. Noted here, not scrubbed from git history, as a reminder to verify against a passing run before writing "resolved.") **Still untested on SharePoint.**
-- Confirm eTag vs cTag semantics for `If-Match` on `/content` — these differ, and picking wrong yields either false 412s or no protection at all. **Resolved for OneDrive: both are honored.** A deliberately wrong tag reliably 412'd (confirming the protection is real), and a content replacement succeeded using either the item's `eTag` or its `cTag` as `If-Match`, tested independently on two freshly-created files so one attempt couldn't invalidate the other's tag. Either is safe to use for `update_file_content`'s mandatory `if_match` on OneDrive. **Verify separately on SharePoint**, where versioning may change the semantics — still open.
-- Confirm site ID and item ID formats so the path-vs-ID discriminator in §5 is sound. **Partially resolved:** a OneDrive item id was observed as `0176NADPLJLSYNNMETHFBJ7IQMXSGTZ4MA` (34 chars, alphanumeric, no `/`) — confirms the discriminator §5 needs (an id never contains `/`, so it can't be confused with a drive-relative path) holds for OneDrive. Site ID format is still untested — deferred along with the other SharePoint/team-site items below, no current use case needs it yet.
-- Confirm `Files.ReadWrite.All` + `Sites.Read.All` is genuinely sufficient for all six use cases against a real library — i.e. that no write path demands `Sites.ReadWrite.All`. **This is the highest-value spike in Phase 0**; if it fails, §6 changes materially. **Resolved for OneDrive:** all three spikes (mkdir-p, eTag/cTag, item-ID) now pass end-to-end under only these two scopes, zero `403`s anywhere. **Still open for SharePoint** — no team site available yet to exercise `Sites.Read.All`'s actual boundary (site/library resolution).
-- Reproduce the required-metadata-column draft-state trap deliberately, so the detection logic is written against observed behavior. **Still open** — requires a SharePoint document library with a required metadata column; no team site available in the tenant yet (see the SharePoint-team-site note below). Not blocking Phase 1, which is OneDrive-only for its initial safe-create tools.
+- Confirm `mkdir -p` approach (§4.4) against both a OneDrive and a SharePoint library. **Resolved for OneDrive, confirmed live.** Root cause: colon-path addressing (`Items["root"].ItemWithPath(path)`) of a folder immediately after creating it is not reliable — Graph's path-resolution index can lag behind the item actually existing, and a `/children` POST against an unresolved colon-path silently lands at the drive root rather than erroring. This is what caused earlier runs' `a`/`b`/`c` folders to land at the drive root instead of nesting, confirmed both by a diagnostic test logging each created item's actual `ParentReference.Path`/`Id` and by a direct OneDrive-web check. **Fix, now passing:** `CreateFolderPathAsync` chains by the item `id` each create returns rather than re-deriving a path string from segment names — id-based addressing needs no path resolution, so it isn't exposed to this at all. **Carries into Phase 1's `create_folder`/`get_item` design: prefer id-based addressing over colon-path addressing for anything just created in the same call chain.** (Two earlier diagnoses on this same failure — a "propagation lag on GET" theory, then a "colon-path GET itself is unreliable" theory — were both wrong, each built on top of the real bug without having isolated it, and both were briefly written into this doc as confirmed findings before being retracted. Noted here, not scrubbed from git history, as a reminder to verify against a passing run before writing "resolved.") SharePoint confirmation tracked in `docs/active/PRD-sharepoint-support.md` §6.
+- Confirm eTag vs cTag semantics for `If-Match` on `/content` — these differ, and picking wrong yields either false 412s or no protection at all. **Resolved for OneDrive: both are honored.** A deliberately wrong tag reliably 412'd (confirming the protection is real), and a content replacement succeeded using either the item's `eTag` or its `cTag` as `If-Match`, tested independently on two freshly-created files so one attempt couldn't invalidate the other's tag. Either is safe to use for `update_file_content`'s mandatory `if_match` on OneDrive. SharePoint verification tracked in `docs/active/PRD-sharepoint-support.md` §6.
+- Confirm site ID and item ID formats so the path-vs-ID discriminator in §5 is sound. **Partially resolved:** a OneDrive item id was observed as `0176NADPLJLSYNNMETHFBJ7IQMXSGTZ4MA` (34 chars, alphanumeric, no `/`) — confirms the discriminator §5 needs (an id never contains `/`, so it can't be confused with a drive-relative path) holds for OneDrive. Site ID format is still untested — tracked in `docs/active/PRD-sharepoint-support.md` §6.
+- Confirm `Files.ReadWrite.All` + `Sites.Read.All` is genuinely sufficient for all six use cases against a real library — i.e. that no write path demands `Sites.ReadWrite.All`. **This is the highest-value spike in Phase 0**; if it fails, §6 changes materially. **Resolved for OneDrive:** all three spikes (mkdir-p, eTag/cTag, item-ID) now pass end-to-end under only these two scopes, zero `403`s anywhere. SharePoint verification tracked in `docs/active/PRD-sharepoint-support.md` §6.
+- Reproduce the required-metadata-column draft-state trap deliberately, so the detection logic is written against observed behavior. Tracked in `docs/active/PRD-sharepoint-support.md` §6 — not blocking Phase 1, which is OneDrive-only for its initial safe-create tools.
 - ~~Confirm Native AOT publish path with the chosen Graph client.~~ **Moot — decided against AOT (§10).** `outlook-writeback` never actually used Native AOT despite this doc previously assuming otherwise; drive-writeback now explicitly matches that (full `Microsoft.Graph` SDK, no `PublishAot`), so there's no publish path left to confirm.
-- **Confirm the official M365 connector's read output surfaces `driveId`/`siteId`/`itemId`** in a form passable to this server. This server assumes discovery/selection happens upstream (§3) and never browses — if the connector's output doesn't carry usable Graph IDs, that assumption breaks and a narrow `resolve_path` tool becomes necessary before Phase 1 can proceed. **Partially resolved:** live test against a OneDrive-for-Business file confirmed `driveId`/`itemId` are returned correctly. The connector could not resolve a folder's `itemId` directly (only the file's) — path-based addressing (`/drives/{drive-id}/root:/{path}:`) is the fallback for folders, so §4.3's "caller supplies a resolved ID" assumption should read "resolved ID or resolved path." Still untested: a file in a SharePoint team-site library (not personal OneDrive) — that's the case where `siteId`'s composite-triple format and a distinct `driveId` actually get exercised. **Deferred, not blocking** — no current use case needs a team site, so this doesn't have to be resolved before starting Phase 0/1 work. It does need to be resolved before any SharePoint-specific code path (site addressing in §5, the check-out/required-column traps in §8) is exercised or trusted — OneDrive-for-Business-only usage can proceed without it.
+- **Confirm the official M365 connector's read output surfaces `driveId`/`siteId`/`itemId`** in a form passable to this server. This server assumes discovery/selection happens upstream (§3) and never browses — if the connector's output doesn't carry usable Graph IDs, that assumption breaks and a narrow `resolve_path` tool becomes necessary before Phase 1 can proceed. **Partially resolved:** live test against a OneDrive-for-Business file confirmed `driveId`/`itemId` are returned correctly. The connector could not resolve a folder's `itemId` directly (only the file's) — path-based addressing (`/drives/{drive-id}/root:/{path}:`) is the fallback for folders, so §4.3's "caller supplies a resolved ID" assumption should read "resolved ID or resolved path." SharePoint team-site verification (where `siteId`'s composite-triple format actually gets exercised) tracked in `docs/active/PRD-sharepoint-support.md` §6 — not blocking OneDrive-only usage.
 - **Confirm "Assignment required" on the Connector app's Enterprise Application works on the tenant's actual Entra license tier.** The Q8 action item (restrict Connector app sign-in to a single user, closing the any-tenant-user-can-authenticate gap) depends on this. **Resolved:** tenant is Entra ID Free. Individual user assignment (not group-based) works on Free tier without a P1/P2 upgrade — confirmed compatible.
 
 **Phase 1 — Safe creates**
-`get_item`, `create_folder`, `create_file`. Dry-run on. **Implemented, pending deployment** — see `drive-writeback/CLAUDE.md` Status for detail. Two open questions surfaced during implementation, both **now resolved against a live tenant**:
+`get_item`, `create_folder`, `create_file`. **Implemented and deployed** — see `drive-writeback/CLAUDE.md` Status for detail. Two open questions surfaced during implementation, both **now resolved against a live tenant**:
 - Whether Graph's `@microsoft.graph.conflictBehavior` is honored as a raw query parameter on the simple-upload content PUT the way it is on `POST .../children`. **Resolved: yes** — a deliberately-conflicting PUT with `?@microsoft.graph.conflictBehavior=fail` appended 409'd as expected (`DriveGraphClientE2ETests.ContentPut_conflictBehavior_query_parameter_is_an_open_question`). The first live run of this test surfaced a separate, now-fixed test bug: the 409 arrived as a bare `Microsoft.Kiota.Abstractions.ApiException` rather than the richer `ODataError` subtype, because this raw, manually-constructed request has no 409 error factory registered — the test's catch clause needed broadening to the base `ApiException` type. `create_file`'s `conflict_behavior` handling never depended on this answer either way — it's enforced entirely client-side (existence pre-check, then unconditional PUT) — so this was a recorded gap in tenant-behavior knowledge, not a blocker, and stays that way now that it's closed.
 - Whether a content PUT to a path whose parent is missing auto-vivifies the parent tree or 404s. **Resolved: it auto-vivifies** (`DriveWriteServiceE2ETests.ContentPut_to_a_missing_parent_is_an_open_question`). Moot for this server's own behavior either way — `CreateFileAsync` guards against a missing parent before ever reaching Graph — but now a confirmed fact rather than an open one.
 
 **Phase 2 — Mutation surface**
-`update_file_content`, `rename_item`, `move_item`, `delete_item`. **Implemented, pending deployment.** All 12 E2E tests (the 3 original Phase 0 spikes plus 9 added across Phase 1/2) now pass against a live tenant, including the new Phase 2 round trips: `rename_item`, `move_item`, delete-idempotency, the `update_file_content` dry-run/real round trip, and the full `delete_item` preview-then-confirm confirmation flow through `DriveItemDeletionService`.
+`update_file_content`, `rename_item`, `move_item`, `delete_item`. **Implemented and deployed** — all confirmed working end to end from Claude Desktop, including the eTag-quoting fix (see `drive-writeback/CLAUDE.md`). All 12 E2E tests (the 3 original Phase 0 spikes plus 9 added across Phase 1/2) now pass against a live tenant, including the new Phase 2 round trips: `rename_item`, `move_item`, delete-idempotency, the `update_file_content` dry-run/real round trip, and the full `delete_item` preview-then-confirm confirmation flow through `DriveItemDeletionService`.
 
 **Phase 3 — SharePoint hardening**
-Check-out/check-in handling, required-column detection, draft-state warnings, version reporting in the audit log. **Not started, and until it lands, the server actively rejects SharePoint document library drives** (`ResolveDriveIdAsync` in `DriveGraphClient.cs`, `SharePointDriveNotSupportedException`) rather than operate against them with none of this hardening in place — a deliberate scope decision, not silent neglect. See `drive-writeback/CLAUDE.md`'s Status section for current state.
+Not started. Full scope moved to `docs/active/PRD-sharepoint-support.md`. Until it lands, the server actively rejects SharePoint document library drives (`ResolveDriveIdAsync` in `DriveGraphClient.cs`, `SharePointDriveNotSupportedException`) rather than operate against them with none of this hardening in place — a deliberate scope decision, not silent neglect. See `drive-writeback/CLAUDE.md`'s Status section for current state.
 
 **Phase 4 — Deferred**
-`copy_item` (async, 202 + monitor URL polling), binary/base64 content, upload-from-URL, resumable upload sessions, restore-from-recycle-bin, cross-drive move.
+Not started. Full scope moved to `docs/active/PRD-extended-write-features.md`.
 
 ---
 
@@ -312,18 +296,18 @@ Check-out/check-in handling, required-column detection, draft-state warnings, ve
 5. ~~eTag or cTag for `If-Match`, and does it differ on SharePoint?~~ **Resolved for OneDrive: both work (§11).** Either the item's `eTag` or its `cTag` is honored by `If-Match` on `/content` — `update_file_content` can accept either without a false 412. SharePoint semantics still unverified.
 6. ~~Same Function App or separate per server?~~ **Decided: separate Function App per server.** Easy Auth (App Service Authentication v2) is configured at the Function App level, not per-route — there's no way to point different paths within one Function App at different identity providers. Sharing a Function App would force `outlook-writeback` and `drive-writeback` to share one Connector app, which breaks the one-Entra-app-per-server invariant. No competing reason to share (each server already gets its own subdomain — e.g. `outlook-writeback.<tenant-domain>`, `drive-writeback.<tenant-domain>` — not a shared one). **`REPO-CONVENTIONS.md` should state explicitly:** "One Function App per MCP server, matching the one-Entra-app-per-server invariant. Each server gets its own subdomain and its own Flex Consumption plan."
 7. ~~Should `list_children` and `list_sites` paginate?~~ **Moot.** Both tools are out of scope — this server does not browse (§3, §4). Discovery is the caller's responsibility.
-8. ~~Does the OSS graceful-degradation requirement (§6) belong in v1 or v2?~~ **Decided: split.** v1 gets a cheap startup scope-check that logs exactly which required scope is missing (§6) — no blind failures. Full graceful degradation (conditional tool registration, per-call friendly errors instead of raw Graph 403s) is deferred to v2, built only when an OSS release is imminent. **Related, not yet in the doc:** by default, Entra allows any tenant user to sign in to an app registration once it exists, unless sign-in is restricted. Since all Graph calls run under the single seeded Server-app refresh token (not per-caller delegation), an unrestricted Connector app would let any tenant user drive this server with the owner's own Graph access. **Action:** set "Assignment required" = Yes on the Connector app's Enterprise Application object and assign only the intended user. Applies to `outlook-writeback` too — should also be captured in `REPO-CONVENTIONS.md`.
-9. **Does a two-stage `commit`/publish tool belong in Phase 1 or Phase 3, for the SharePoint required-column/content-approval draft-state trap (§8)?** Undecided — Phase 3 (SharePoint hardening) already scopes check-out/check-in and draft-state detection, so this likely belongs there rather than Phase 1's OneDrive-only safe-creates. If built, it should mirror `delete_item`'s two-stage confirmation posture (§4.4), not auto-publish a hidden draft.
+8. ~~Does the OSS graceful-degradation requirement belong in v1 or v2?~~ **Decided: split.** Full detail moved to `docs/active/PRD-oss-deployment.md`. **Related, not yet in the doc:** by default, Entra allows any tenant user to sign in to an app registration once it exists, unless sign-in is restricted. Since all Graph calls run under the single seeded Server-app refresh token (not per-caller delegation), an unrestricted Connector app would let any tenant user drive this server with the owner's own Graph access. **Action:** set "Assignment required" = Yes on the Connector app's Enterprise Application object and assign only the intended user — already confirmed working on this tenant's Entra ID Free license tier (§11 Phase 0). Applies to `outlook-writeback` too — should also be captured in `REPO-CONVENTIONS.md`.
+9. Two-stage `commit`/publish tool for the SharePoint required-column/content-approval draft-state trap — moved to `docs/active/PRD-sharepoint-support.md` §5.
 
 ---
 
 ## 13. Success criteria
 
-- All six use cases executable end-to-end from Claude Desktop against both OneDrive and at least one SharePoint library on the live tenant. **Currently OneDrive-only by deliberate choice** — see the Phase 3 note in §11; the SharePoint half of this criterion is deferred along with Phase 3, not a live gap.
+- All six use cases executable end-to-end from Claude Desktop and claude.ai against the user's OneDrive on the live tenant. **Confirmed live** — Phases 1–2 deployed, all six write tools plus `get_item` verified working from Claude Desktop. SharePoint library support is a separate criterion, tracked in `docs/active/PRD-sharepoint-support.md` §7.
 - No writes possible beyond what the signed-in account's own Graph permissions allow (§9) — enforcement is Graph's ACL, not an app-level list; verified by test that a write to an inaccessible drive/site fails with Graph's own 403/404, not a silent success.
 - No path to permanent data loss without an explicit user confirmation turn.
-- Required-column and check-out draft states detected and reported, never silently reported as success. **Moot for now** — SharePoint drives are rejected before any such write is attempted (§11 Phase 3).
-- Every mutation reconstructable from the audit log, including SharePoint version numbers. **SharePoint version numbers specifically deferred to Phase 3**, same reasoning.
+- Required-column and check-out draft states detected and reported, never silently reported as success — SharePoint-specific, tracked in `docs/active/PRD-sharepoint-support.md` §7.
+- Every mutation reconstructable from the audit log, including SharePoint version numbers where applicable — tracked in `docs/active/PRD-sharepoint-support.md` §7.
 - Full `Microsoft.Graph` SDK, Native AOT dropped — see §10.
 
 ---

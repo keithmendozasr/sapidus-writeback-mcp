@@ -36,7 +36,7 @@ public class DrivePathTests
     public void LooksLikeItemId_is_true_for_the_observed_live_OneDrive_id_shape()
     {
         // 34 chars, alphanumeric, no '/' - the live OneDrive item id observed in
-        // Phase 0 (docs/active/PRD-drive-write.md §11).
+        // Phase 0 (docs/archive/PRD-drive-write.md §11).
         Assert.That(DrivePath.LooksLikeItemId("0176NADPLJLSYNNMETHFBJ7IQMXSGTZ4MA"), Is.True);
     }
 

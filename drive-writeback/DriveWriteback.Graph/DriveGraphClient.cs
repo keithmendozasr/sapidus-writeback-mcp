@@ -12,11 +12,11 @@ using DriveWriteback.Graph.Auth;
 namespace DriveWriteback.Graph;
 
 /// <summary>
-/// Thin wrapper over the Graph SDK for the Phase 0 spike: proves delegated auth plus
-/// folder creation, content upload, and If-Match content replacement work against a
-/// self-registered Entra app. Not the full create_file/create_folder/update_file_content
-/// tool surface - that lands in Phase 1-2 once these assumptions are verified.
-/// See docs/active/PRD-drive-write.md §11.
+/// Thin wrapper over the Graph SDK for the full drive-writeback tool surface: delegated
+/// auth, folder creation, content upload/replacement, rename/move/delete, and the
+/// SharePoint-drive rejection guard, against a self-registered Entra app. Started as the
+/// Phase 0 spike client and grew into this as Phase 1/2 landed - see
+/// docs/archive/PRD-drive-write.md §11.
 ///
 /// Every method takes an optional driveId, mirroring the PRD §5 addressing model: omitted,
 /// it resolves the signed-in user's own OneDrive (GET /me/drive); supplied, it targets
@@ -145,7 +145,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     /// nested where intended (confirmed both via a direct OneDrive-web check and by logging
     /// each created item's own ParentReference.Path). Addressing by the id Graph just
     /// returned needs no path resolution at all and sidesteps this entirely.
-    /// See docs/active/PRD-drive-write.md §11/§12 Q3.
+    /// See docs/archive/PRD-drive-write.md §11/§12 Q3.
     /// </summary>
     public async Task<DriveItem?> CreateFolderPathAsync(
         string fullPath,

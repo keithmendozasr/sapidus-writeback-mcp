@@ -64,4 +64,26 @@ public class GetItemToolTests
             Assert.That(result, Does.Contain("42 bytes"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_surfaces_the_if_match_value_with_its_quote_characters_intact()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"{GUID},1\"","cTag":"\"c:{GUID},1\"","size":1,"webUrl":"https://example/notes.md"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var tool = new GetItemTool(CreateClient(handler));
+
+        var result = await tool.RunAsync(null!, "notes.md", driveId: "drive-id");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain("\"{GUID},1\""), "the eTag's surrounding quotes must survive into the response verbatim - a model copying an unquoted substring produces an if_match value Graph will always reject with a 412, no matter how fresh the read.");
+            Assert.That(result, Does.Contain("\"c:{GUID},1\""));
+            Assert.That(result, Does.Contain("copy this exact string verbatim"));
+        });
+    }
 }

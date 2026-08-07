@@ -9,7 +9,7 @@ namespace DriveWriteback.Graph.Tests;
 /// aren't set - it cannot run in CI or without the user's own tenant credentials.
 ///
 /// Each test in this fixture answers one open Phase 0 validation-spike question from
-/// docs/active/PRD-drive-write.md §11 and cleans up after itself so repeated runs don't
+/// docs/archive/PRD-drive-write.md §11 and cleans up after itself so repeated runs don't
 /// accumulate junk in the real OneDrive.
 /// </summary>
 [TestFixture]

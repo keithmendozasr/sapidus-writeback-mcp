@@ -6,7 +6,7 @@
 **Language:** C#
 **Target clients:** Claude Desktop, Claude Cowork, claude.ai
 **Repo location:** `sapidus-writeback-mcp/drive-writeback/` (one server folder in the `sapidus-writeback-mcp` monorepo — see `../REPO-CONVENTIONS.md` for the cross-server rules this PRD inherits)
-**Extracted from:** `docs/active/PRD-drive-write.md` ("v1" below) — v1's original goal (§2) was for all six write tools to work against both OneDrive and SharePoint document libraries, but what actually shipped (Phases 1–2) is OneDrive-only; the running server rejects any SharePoint document library drive outright (`SharePointDriveNotSupportedException` in `DriveGraphClient.ResolveDriveIdAsync`) rather than operate against one without this PRD's hardening in place. This doc collects every SharePoint-specific piece of scope v1 already specified but never built, so it can be tracked and eventually implemented as its own unit of work rather than staying scattered across a PRD that's otherwise describing shipped behavior. Every section of v1 not called out here is unchanged and unaffected by this PRD — see v1 for the tool surface, addressing model, and guardrails this builds on.
+**Extracted from:** `docs/archive/PRD-drive-write.md` ("v1" below) — v1's original goal (§2) was for all six write tools to work against both OneDrive and SharePoint document libraries, but what actually shipped (Phases 1–2) is OneDrive-only; the running server rejects any SharePoint document library drive outright (`SharePointDriveNotSupportedException` in `DriveGraphClient.ResolveDriveIdAsync`) rather than operate against one without this PRD's hardening in place. This doc collects every SharePoint-specific piece of scope v1 already specified but never built, so it can be tracked and eventually implemented as its own unit of work rather than staying scattered across a PRD that's otherwise describing shipped behavior. Every section of v1 not called out here is unchanged and unaffected by this PRD — see v1 for the tool surface, addressing model, and guardrails this builds on.
 
 ---
 
@@ -73,4 +73,4 @@ v1's Phase 0 validated three behaviors (`mkdir -p` via id-chaining, eTag/cTag se
 - Microsoft Graph — site resource and addressing: https://learn.microsoft.com/en-us/graph/api/resources/site
 - Microsoft Graph — list a site's drives: https://learn.microsoft.com/en-us/graph/api/drive-list
 - Microsoft Graph — Sites.Selected overview: https://learn.microsoft.com/en-us/sharepoint/dev/solution-guidance/security-apponly-azuread
-- Repo-internal: `../REPO-CONVENTIONS.md`, `docs/active/PRD-drive-write.md`
+- Repo-internal: `../REPO-CONVENTIONS.md`, `docs/archive/PRD-drive-write.md`

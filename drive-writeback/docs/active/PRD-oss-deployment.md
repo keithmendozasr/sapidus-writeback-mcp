@@ -6,7 +6,7 @@
 **Language:** C#
 **Target clients:** Claude Desktop, Claude Cowork, claude.ai
 **Repo location:** `sapidus-writeback-mcp/drive-writeback/` (one server folder in the `sapidus-writeback-mcp` monorepo — see `../REPO-CONVENTIONS.md` for the cross-server rules this PRD inherits)
-**Extracted from:** `docs/active/PRD-drive-write.md` ("v1" below) — v1 was designed and deployed for a single, admin-owned tenant. This doc collects everything v1 flagged as relevant only to a future OSS release, where the deployer is not necessarily a tenant admin and may run with partial Graph consent. None of it is built. Every section of v1 not called out here is unchanged and unaffected by this PRD.
+**Extracted from:** `docs/archive/PRD-drive-write.md` ("v1" below) — v1 was designed and deployed for a single, admin-owned tenant. This doc collects everything v1 flagged as relevant only to a future OSS release, where the deployer is not necessarily a tenant admin and may run with partial Graph consent. None of it is built. Every section of v1 not called out here is unchanged and unaffected by this PRD.
 
 ---
 
@@ -49,4 +49,4 @@ By default, Entra allows any tenant user to sign in to an app registration once 
 ## 5. References
 
 - Microsoft Graph — permissions reference: https://learn.microsoft.com/en-us/graph/permissions-reference
-- Repo-internal: `../REPO-CONVENTIONS.md`, `docs/active/PRD-drive-write.md`
+- Repo-internal: `../REPO-CONVENTIONS.md`, `docs/archive/PRD-drive-write.md`

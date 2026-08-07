@@ -145,7 +145,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     /// nested where intended (confirmed both via a direct OneDrive-web check and by logging
     /// each created item's own ParentReference.Path). Addressing by the id Graph just
     /// returned needs no path resolution at all and sidesteps this entirely.
-    /// See docs/active/PRD-drive-write.md §11/§12 Q3.
+    /// See docs/archive/PRD-drive-write.md §11/§12 Q3.
     /// </summary>
     public async Task<DriveItem?> CreateFolderPathAsync(
         string fullPath,

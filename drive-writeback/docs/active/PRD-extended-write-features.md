@@ -6,7 +6,7 @@
 **Language:** C#
 **Target clients:** Claude Desktop, Claude Cowork, claude.ai
 **Repo location:** `sapidus-writeback-mcp/drive-writeback/` (one server folder in the `sapidus-writeback-mcp` monorepo — see `../REPO-CONVENTIONS.md` for the cross-server rules this PRD inherits)
-**Extracted from:** `docs/active/PRD-drive-write.md` ("v1" below), §11 Phase 4 and the matching §3 Non-goals bullets. This is a backlog of individually-small features v1 deliberately excluded rather than one coherent capability epic — kept together as one doc for now; split further only once a specific item below is actually picked up for real design work. Every section of v1 not called out here is unchanged and unaffected by this PRD.
+**Extracted from:** `docs/archive/PRD-drive-write.md` ("v1" below), §11 Phase 4 and the matching §3 Non-goals bullets. This is a backlog of individually-small features v1 deliberately excluded rather than one coherent capability epic — kept together as one doc for now; split further only once a specific item below is actually picked up for real design work. Every section of v1 not called out here is unchanged and unaffected by this PRD.
 
 ---
 
@@ -53,4 +53,4 @@ Deliberately none set at the PRD level — each feature in §2 is independent en
 
 - Microsoft Graph — upload or replace driveItem content: https://learn.microsoft.com/en-us/graph/api/driveitem-put-content
 - Microsoft Graph — move a driveItem: https://learn.microsoft.com/en-us/graph/api/driveitem-move
-- Repo-internal: `../REPO-CONVENTIONS.md`, `docs/active/PRD-drive-write.md`
+- Repo-internal: `../REPO-CONVENTIONS.md`, `docs/archive/PRD-drive-write.md`

@@ -296,7 +296,23 @@ Same phase `outlook-writeback` already went through — see `outlook-writeback/D
 1. **Wrong — add the new hostname's `identifierUris` alongside the old ones:** breaks the already-working connection with `AADSTS90009: Application '<app-id>' is requesting a token for itself. This scenario is supported only if resource is specified using the GUID based Application ID URI.`
 2. **Wrong — leave `identifierUris` and `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` alone entirely:** a `401` against the new hostname still advertises the old hostname's scope (`WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` is a single static value, not derived per-request — only the PRM document's `resource` field is dynamic, from the request's Host header). A cached-token reconnect can work anyway, masking the problem; a later fresh authorize fails with `OAuth error: invalid_target - AADSTS9010010: The resource parameter provided in the request doesn't match with the requested scopes`.
 3. **Right — swap, not add, in the same pass:**
+
+   PowerShell:
+   ```powershell
+   az rest --method PATCH `
+     --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" `
+     --body '{"identifierUris":[
+       "https://<subdomain>.example.com",
+       "https://<subdomain>.example.com/runtime/webhooks/mcp"
+     ]}'
+
+   az functionapp config appsettings set `
+     --name <server>-func `
+     --resource-group <server>-rg `
+     --settings WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES=https://<subdomain>.example.com/runtime/webhooks/mcp/access_as_user
    ```
+   bash/Git Bash:
+   ```bash
    az rest --method PATCH \
      --url "https://graph.microsoft.com/v1.0/applications/<connector-app-object-id>" \
      --body '{"identifierUris":[

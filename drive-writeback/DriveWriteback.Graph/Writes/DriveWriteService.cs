@@ -114,7 +114,7 @@ public sealed class DriveWriteService(DriveGraphClient client, DriveWriteOptions
         if (contentBytes > options.MaxContentBytes)
             throw new DriveContentTooLargeException(contentBytes, options.MaxContentBytes);
 
-        var (item, _) = await client.GetItemAsync(pathOrId, driveId, cancellationToken);
+        var (item, _) = await client.GetItemAsync(pathOrId, driveId, cancellationToken: cancellationToken);
 
         if (item is null)
             throw new ItemNotFoundException(pathOrId);
@@ -148,7 +148,7 @@ public sealed class DriveWriteService(DriveGraphClient client, DriveWriteOptions
     {
         DrivePath.Validate(newName);
 
-        var (item, _) = await client.GetItemAsync(pathOrId, driveId, cancellationToken);
+        var (item, _) = await client.GetItemAsync(pathOrId, driveId, cancellationToken: cancellationToken);
 
         if (item is null)
             throw new ItemNotFoundException(pathOrId);
@@ -181,12 +181,12 @@ public sealed class DriveWriteService(DriveGraphClient client, DriveWriteOptions
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var (item, _) = await client.GetItemAsync(pathOrId, driveId, cancellationToken);
+        var (item, _) = await client.GetItemAsync(pathOrId, driveId, cancellationToken: cancellationToken);
 
         if (item is null)
             throw new ItemNotFoundException(pathOrId);
 
-        var (parent, _) = await client.GetItemAsync(newParentPathOrId, driveId, cancellationToken);
+        var (parent, _) = await client.GetItemAsync(newParentPathOrId, driveId, cancellationToken: cancellationToken);
 
         if (parent is null)
             throw new DriveParentNotFoundException(newParentPathOrId);

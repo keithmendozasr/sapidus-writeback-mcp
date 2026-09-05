@@ -244,11 +244,15 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     public async Task<DriveItem?> GetItemByIdAsync(
         string itemId,
         string? driveId = null,
+        DateTimeOffset? notModifiedSince = null,
         CancellationToken cancellationToken = default)
     {
         var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
+        var item = await client.Drives[resolvedDriveId].Items[itemId].GetAsync(cancellationToken: cancellationToken);
 
-        return await client.Drives[resolvedDriveId].Items[itemId].GetAsync(cancellationToken: cancellationToken);
+        EnsureNotModifiedSince(item, itemId, notModifiedSince);
+
+        return item;
     }
 
     /// <summary>
@@ -264,7 +268,7 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     {
         try
         {
-            return await GetItemByIdAsync(itemId, driveId, cancellationToken);
+            return await GetItemByIdAsync(itemId, driveId, cancellationToken: cancellationToken);
         }
         catch (ODataError error) when (error.ResponseStatusCode == 404)
         {
@@ -281,12 +285,13 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     public async Task<ItemResolution> GetItemAsync(
         string pathOrId,
         string? driveId = null,
+        DateTimeOffset? notModifiedSince = null,
         CancellationToken cancellationToken = default)
     {
         if (DrivePath.LooksLikeItemId(pathOrId))
-            return new ItemResolution(await GetItemByIdAsync(pathOrId, driveId, cancellationToken), ResolvedAsId: true);
+            return new ItemResolution(await GetItemByIdAsync(pathOrId, driveId, notModifiedSince, cancellationToken), ResolvedAsId: true);
 
-        return new ItemResolution(await GetItemByPathAsync(pathOrId, driveId, cancellationToken), ResolvedAsId: false);
+        return new ItemResolution(await GetItemByPathAsync(pathOrId, driveId, notModifiedSince, cancellationToken), ResolvedAsId: false);
     }
 
     /// <summary>
@@ -316,11 +321,15 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     public async Task<DriveItem?> GetItemByPathAsync(
         string path,
         string? driveId = null,
+        DateTimeOffset? notModifiedSince = null,
         CancellationToken cancellationToken = default)
     {
         var resolvedDriveId = await ResolveDriveIdAsync(driveId, cancellationToken);
+        var item = await ResolvePathItem(resolvedDriveId, path).GetAsync(cancellationToken: cancellationToken);
 
-        return await ResolvePathItem(resolvedDriveId, path).GetAsync(cancellationToken: cancellationToken);
+        EnsureNotModifiedSince(item, path, notModifiedSince);
+
+        return item;
     }
 
     /// <summary>
@@ -335,12 +344,30 @@ public sealed class DriveGraphClient(GraphServiceClient client)
     {
         try
         {
-            return await GetItemByPathAsync(path, driveId, cancellationToken);
+            return await GetItemByPathAsync(path, driveId, cancellationToken: cancellationToken);
         }
         catch (ODataError error) when (error.ResponseStatusCode == 404)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Enforces PRD-etag-enforcement.md's not_modified_since check: get_item requires this so
+    /// a caller can tell whether the item changed in the window between their own original
+    /// content read and this call, not just the narrower window if_match alone protects
+    /// (between get_item and the write). Client-side only - Graph has no server-side
+    /// If-Unmodified-Since equivalent for driveItem. A null notModifiedSince (every caller
+    /// except the get_item tool itself) or a missing LastModifiedDateTime on the item skips
+    /// the check entirely.
+    /// </summary>
+    private static void EnsureNotModifiedSince(DriveItem? item, string pathOrId, DateTimeOffset? notModifiedSince)
+    {
+        if (notModifiedSince is null || item?.LastModifiedDateTime is null)
+            return;
+
+        if (item.LastModifiedDateTime > notModifiedSince)
+            throw new ItemModifiedSinceReadException(pathOrId, notModifiedSince.Value, item.LastModifiedDateTime.Value);
     }
 
     /// <summary>
@@ -786,4 +813,20 @@ public sealed class ItemNotFoundException(string pathOrId)
     : Exception($"No item found at '{pathOrId}'.")
 {
     public string PathOrId { get; } = pathOrId;
+}
+
+/// <summary>
+/// Surfaced by GetItemByIdAsync/GetItemByPathAsync when a caller-supplied not_modified_since
+/// value predates the resolved item's Graph LastModifiedDateTime (PRD-etag-enforcement.md §4.1)
+/// - the item changed after the caller's own read, so handing back a fresh if_match here would
+/// let a stale edit silently overwrite that change. Client-side only; Graph has no server-side
+/// If-Unmodified-Since equivalent for driveItem.
+/// </summary>
+public sealed class ItemModifiedSinceReadException(string pathOrId, DateTimeOffset notModifiedSince, DateTimeOffset lastModifiedDateTime)
+    : Exception($"'{pathOrId}' was modified at {lastModifiedDateTime:O}, after the supplied not_modified_since of {notModifiedSince:O}. " +
+        "Re-read the file's content and resolve any conflict before retrying.")
+{
+    public string PathOrId { get; } = pathOrId;
+    public DateTimeOffset NotModifiedSince { get; } = notModifiedSince;
+    public DateTimeOffset LastModifiedDateTime { get; } = lastModifiedDateTime;
 }

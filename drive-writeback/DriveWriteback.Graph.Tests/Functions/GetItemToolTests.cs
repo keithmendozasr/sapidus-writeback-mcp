@@ -1,5 +1,7 @@
 using System.Net;
+using System.Reflection;
 using System.Text;
+using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using DriveWriteback.Functions;
@@ -12,6 +14,8 @@ namespace DriveWriteback.Graph.Tests.Functions;
 [Category("Unit")]
 public class GetItemToolTests
 {
+    private const string NotModifiedSince = "2026-09-01T12:00:00Z";
+
     private static DriveGraphClient CreateClient(StubHttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
@@ -26,13 +30,13 @@ public class GetItemToolTests
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                """{"id":"folder-id","name":"Reports","folder":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":0,"webUrl":"https://example/Reports"}""",
+                $$"""{"id":"folder-id","name":"Reports","folder":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":0,"webUrl":"https://example/Reports","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         }));
-        var tool = new GetItemTool(CreateClient(handler));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
-        var result = await tool.RunAsync(null!, "Reports", driveId: "drive-id");
+        var result = await tool.RunAsync(null!, "Reports", NotModifiedSince, driveId: "drive-id");
 
         Assert.Multiple(() =>
         {
@@ -49,13 +53,13 @@ public class GetItemToolTests
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                $$"""{"id":"{{itemId}}","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":42,"webUrl":"https://example/notes.md"}""",
+                $$"""{"id":"{{itemId}}","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":42,"webUrl":"https://example/notes.md","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         }));
-        var tool = new GetItemTool(CreateClient(handler));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
-        var result = await tool.RunAsync(null!, itemId, driveId: "drive-id");
+        var result = await tool.RunAsync(null!, itemId, NotModifiedSince, driveId: "drive-id");
 
         Assert.Multiple(() =>
         {
@@ -71,13 +75,13 @@ public class GetItemToolTests
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"{GUID},1\"","cTag":"\"c:{GUID},1\"","size":1,"webUrl":"https://example/notes.md"}""",
+                $$"""{"id":"item-id","name":"notes.md","file":{},"eTag":"\"{GUID},1\"","cTag":"\"c:{GUID},1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         }));
-        var tool = new GetItemTool(CreateClient(handler));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
-        var result = await tool.RunAsync(null!, "notes.md", driveId: "drive-id");
+        var result = await tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id");
 
         Assert.Multiple(() =>
         {
@@ -85,5 +89,84 @@ public class GetItemToolTests
             Assert.That(result, Does.Contain("\"c:{GUID},1\""));
             Assert.That(result, Does.Contain("copy this exact string verbatim"));
         });
+    }
+
+    [Test]
+    public void RunAsync_rejects_a_malformed_not_modified_since_before_any_Graph_call()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Graph must never be called with an unparseable not_modified_since."));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
+
+        Assert.That(
+            () => tool.RunAsync(null!, "notes.md", "not-a-timestamp", driveId: "drive-id"),
+            Throws.InstanceOf<ArgumentException>());
+    }
+
+    [Test]
+    public void RunAsync_rejects_a_read_whose_target_was_modified_after_not_modified_since()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:01Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
+
+        Assert.That(
+            () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
+            Throws.InstanceOf<ItemModifiedSinceReadException>()
+                .With.Message.Contain("Re-read the file's content and resolve any conflict before retrying."));
+    }
+
+    [Test]
+    public async Task RunAsync_logs_an_audit_entry_on_a_passing_read()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                $$"""{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var logger = new RecordingLogger<GetItemTool>();
+        var tool = new GetItemTool(CreateClient(handler), logger);
+
+        await tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id");
+
+        Assert.That(logger.Messages, Has.Some.Contains("outcome=pass").And.Contains("notes.md"));
+    }
+
+    [Test]
+    public void RunAsync_logs_an_audit_entry_on_a_rejected_read()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:01Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var logger = new RecordingLogger<GetItemTool>();
+        var tool = new GetItemTool(CreateClient(handler), logger);
+
+        Assert.That(
+            () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
+            Throws.InstanceOf<ItemModifiedSinceReadException>());
+        Assert.That(logger.Messages, Has.Some.Contains("outcome=rejected").And.Contains("notes.md"));
+    }
+
+    [Test]
+    public void RunAsync_marks_not_modified_since_as_a_required_tool_property()
+    {
+        var parameter = typeof(GetItemTool)
+            .GetMethod(nameof(GetItemTool.RunAsync))!
+            .GetParameters()
+            .Single(p => p.GetCustomAttribute<McpToolPropertyAttribute>()?.PropertyName == "not_modified_since");
+        var attribute = parameter.GetCustomAttribute<McpToolPropertyAttribute>()!;
+
+        Assert.That(attribute.IsRequired, Is.True);
     }
 }

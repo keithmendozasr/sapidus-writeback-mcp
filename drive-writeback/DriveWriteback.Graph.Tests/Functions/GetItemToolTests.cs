@@ -100,4 +100,22 @@ public class GetItemToolTests
             () => tool.RunAsync(null!, "notes.md", "not-a-timestamp", driveId: "drive-id"),
             Throws.InstanceOf<ArgumentException>());
     }
+
+    [Test]
+    public void RunAsync_rejects_a_read_whose_target_was_modified_after_not_modified_since()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:01Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
+
+        Assert.That(
+            () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
+            Throws.InstanceOf<ItemModifiedSinceReadException>()
+                .With.Message.Contain("Re-read the file's content and resolve any conflict before retrying."));
+    }
 }

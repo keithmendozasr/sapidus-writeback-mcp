@@ -32,7 +32,7 @@ public sealed class DriveItemDeletionService(
         string? driveId = null,
         CancellationToken cancellationToken = default)
     {
-        var (item, resolvedAsId) = await client.GetItemAsync(pathOrId, driveId, cancellationToken);
+        var (item, resolvedAsId) = await client.GetItemAsync(pathOrId, driveId, cancellationToken: cancellationToken);
 
         if (item is null)
             throw new ItemNotFoundException(pathOrId);

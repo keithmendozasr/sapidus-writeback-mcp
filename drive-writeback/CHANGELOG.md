@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/keithmendozasr/sapidus-writeback-mcp/compare/drive-writeback-0.1.0...drive-writeback-0.2.0) (2026-09-05)
+
+
+### Features
+
+* **drive-writeback:** require not_modified_since on get_item ([#20](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/20)) ([e86ebaa](https://github.com/keithmendozasr/sapidus-writeback-mcp/commit/e86ebaaa7c29bc3535aa7bf897d87411b99b2df1))
+
 ## 0.1.0 (2026-08-07)
 
 

@@ -1,5 +1,7 @@
 using System.Net;
+using System.Reflection;
 using System.Text;
+using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
 using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using DriveWriteback.Functions;
@@ -154,5 +156,17 @@ public class GetItemToolTests
             () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
             Throws.InstanceOf<ItemModifiedSinceReadException>());
         Assert.That(logger.Messages, Has.Some.Contains("outcome=rejected").And.Contains("notes.md"));
+    }
+
+    [Test]
+    public void RunAsync_marks_not_modified_since_as_a_required_tool_property()
+    {
+        var parameter = typeof(GetItemTool)
+            .GetMethod(nameof(GetItemTool.RunAsync))!
+            .GetParameters()
+            .Single(p => p.GetCustomAttribute<McpToolPropertyAttribute>()?.PropertyName == "not_modified_since");
+        var attribute = parameter.GetCustomAttribute<McpToolPropertyAttribute>()!;
+
+        Assert.That(attribute.IsRequired, Is.True);
     }
 }

@@ -118,4 +118,41 @@ public class GetItemToolTests
             Throws.InstanceOf<ItemModifiedSinceReadException>()
                 .With.Message.Contain("Re-read the file's content and resolve any conflict before retrying."));
     }
+
+    [Test]
+    public async Task RunAsync_logs_an_audit_entry_on_a_passing_read()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                $$"""{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var logger = new RecordingLogger<GetItemTool>();
+        var tool = new GetItemTool(CreateClient(handler), logger);
+
+        await tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id");
+
+        Assert.That(logger.Messages, Has.Some.Contains("outcome=pass").And.Contains("notes.md"));
+    }
+
+    [Test]
+    public void RunAsync_logs_an_audit_entry_on_a_rejected_read()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:01Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+        var logger = new RecordingLogger<GetItemTool>();
+        var tool = new GetItemTool(CreateClient(handler), logger);
+
+        Assert.That(
+            () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
+            Throws.InstanceOf<ItemModifiedSinceReadException>());
+        Assert.That(logger.Messages, Has.Some.Contains("outcome=rejected").And.Contains("notes.md"));
+    }
 }

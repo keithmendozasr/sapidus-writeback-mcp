@@ -88,4 +88,16 @@ public class GetItemToolTests
             Assert.That(result, Does.Contain("copy this exact string verbatim"));
         });
     }
+
+    [Test]
+    public void RunAsync_rejects_a_malformed_not_modified_since_before_any_Graph_call()
+    {
+        var handler = new StubHttpMessageHandler(
+            _ => throw new InvalidOperationException("Graph must never be called with an unparseable not_modified_since."));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
+
+        Assert.That(
+            () => tool.RunAsync(null!, "notes.md", "not-a-timestamp", driveId: "drive-id"),
+            Throws.InstanceOf<ArgumentException>());
+    }
 }

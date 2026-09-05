@@ -12,6 +12,8 @@ namespace DriveWriteback.Graph.Tests.Functions;
 [Category("Unit")]
 public class GetItemToolTests
 {
+    private const string NotModifiedSince = "2026-09-01T12:00:00Z";
+
     private static DriveGraphClient CreateClient(StubHttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
@@ -26,13 +28,13 @@ public class GetItemToolTests
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                """{"id":"folder-id","name":"Reports","folder":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":0,"webUrl":"https://example/Reports"}""",
+                $$"""{"id":"folder-id","name":"Reports","folder":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":0,"webUrl":"https://example/Reports","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         }));
-        var tool = new GetItemTool(CreateClient(handler));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
-        var result = await tool.RunAsync(null!, "Reports", driveId: "drive-id");
+        var result = await tool.RunAsync(null!, "Reports", NotModifiedSince, driveId: "drive-id");
 
         Assert.Multiple(() =>
         {
@@ -49,13 +51,13 @@ public class GetItemToolTests
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                $$"""{"id":"{{itemId}}","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":42,"webUrl":"https://example/notes.md"}""",
+                $$"""{"id":"{{itemId}}","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":42,"webUrl":"https://example/notes.md","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         }));
-        var tool = new GetItemTool(CreateClient(handler));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
-        var result = await tool.RunAsync(null!, itemId, driveId: "drive-id");
+        var result = await tool.RunAsync(null!, itemId, NotModifiedSince, driveId: "drive-id");
 
         Assert.Multiple(() =>
         {
@@ -71,13 +73,13 @@ public class GetItemToolTests
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"{GUID},1\"","cTag":"\"c:{GUID},1\"","size":1,"webUrl":"https://example/notes.md"}""",
+                $$"""{"id":"item-id","name":"notes.md","file":{},"eTag":"\"{GUID},1\"","cTag":"\"c:{GUID},1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"{{NotModifiedSince}}"}""",
                 Encoding.UTF8,
                 "application/json"),
         }));
-        var tool = new GetItemTool(CreateClient(handler));
+        var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
-        var result = await tool.RunAsync(null!, "notes.md", driveId: "drive-id");
+        var result = await tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id");
 
         Assert.Multiple(() =>
         {

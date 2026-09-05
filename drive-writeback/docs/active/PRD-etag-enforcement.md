@@ -1,7 +1,7 @@
 # PRD — eTag Enforcement Hardening for `drive-writeback`
 
 **Owner:** Keith Mendoza
-**Status:** Not started
+**Status:** Implemented — pending deployment
 **Target platform:** Azure
 **Language:** C#
 **Target clients:** Claude Desktop, Claude Cowork, claude.ai

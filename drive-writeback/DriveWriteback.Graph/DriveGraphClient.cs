@@ -787,3 +787,19 @@ public sealed class ItemNotFoundException(string pathOrId)
 {
     public string PathOrId { get; } = pathOrId;
 }
+
+/// <summary>
+/// Surfaced by GetItemByIdAsync/GetItemByPathAsync when a caller-supplied not_modified_since
+/// value predates the resolved item's Graph LastModifiedDateTime (PRD-etag-enforcement.md §4.1)
+/// - the item changed after the caller's own read, so handing back a fresh if_match here would
+/// let a stale edit silently overwrite that change. Client-side only; Graph has no server-side
+/// If-Unmodified-Since equivalent for driveItem.
+/// </summary>
+public sealed class ItemModifiedSinceReadException(string pathOrId, DateTimeOffset notModifiedSince, DateTimeOffset lastModifiedDateTime)
+    : Exception($"'{pathOrId}' was modified at {lastModifiedDateTime:O}, after the supplied not_modified_since of {notModifiedSince:O}. " +
+        "Re-read the file's content and resolve any conflict before retrying.")
+{
+    public string PathOrId { get; } = pathOrId;
+    public DateTimeOffset NotModifiedSince { get; } = notModifiedSince;
+    public DateTimeOffset LastModifiedDateTime { get; } = lastModifiedDateTime;
+}

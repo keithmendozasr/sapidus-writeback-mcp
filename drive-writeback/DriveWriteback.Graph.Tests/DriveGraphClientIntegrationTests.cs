@@ -371,6 +371,83 @@ public class DriveGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task GetItemByPathAsync_passes_when_the_item_was_last_modified_before_not_modified_since()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:00Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        var item = await CreateClient(handler).GetItemByPathAsync(
+            "notes.md",
+            driveId: "drive-id",
+            notModifiedSince: DateTimeOffset.Parse("2026-09-01T12:00:01Z"));
+
+        Assert.That(item?.Id, Is.EqualTo("item-id"));
+    }
+
+    [Test]
+    public async Task GetItemByPathAsync_passes_when_the_item_was_last_modified_exactly_at_not_modified_since()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:00Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        var item = await CreateClient(handler).GetItemByPathAsync(
+            "notes.md",
+            driveId: "drive-id",
+            notModifiedSince: DateTimeOffset.Parse("2026-09-01T12:00:00Z"));
+
+        Assert.That(item?.Id, Is.EqualTo("item-id"), "equality is not a modification - only strictly-after should reject.");
+    }
+
+    [Test]
+    public void GetItemByPathAsync_rejects_when_the_item_was_modified_after_not_modified_since()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:01Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        Assert.That(
+            () => CreateClient(handler).GetItemByPathAsync(
+                "notes.md",
+                driveId: "drive-id",
+                notModifiedSince: DateTimeOffset.Parse("2026-09-01T12:00:00Z")),
+            Throws.InstanceOf<ItemModifiedSinceReadException>());
+    }
+
+    [Test]
+    public void GetItemByIdAsync_rejects_when_the_item_was_modified_after_not_modified_since()
+    {
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"id":"item-id","name":"notes.md","file":{},"eTag":"\"e1\"","cTag":"\"c1\"","size":1,"webUrl":"https://example/notes.md","lastModifiedDateTime":"2026-09-01T12:00:01Z"}""",
+                Encoding.UTF8,
+                "application/json"),
+        }));
+
+        Assert.That(
+            () => CreateClient(handler).GetItemByIdAsync(
+                "item-id",
+                driveId: "drive-id",
+                notModifiedSince: DateTimeOffset.Parse("2026-09-01T12:00:00Z")),
+            Throws.InstanceOf<ItemModifiedSinceReadException>(),
+            "the same client-side check must fire from the id-based entry point, not just the path-based one.");
+    }
+
+    [Test]
     public async Task CreateFileAsync_validates_a_given_drive_id_only_once_across_its_own_parent_and_target_checks()
     {
         var handler = new StubHttpMessageHandler(request => request.Method == HttpMethod.Get

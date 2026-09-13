@@ -19,8 +19,9 @@ The monorepo is a developer convenience. It is deliberately **not** one deployed
 | Server | Tools | Graph scopes |
 |---|---|---|
 | [`outlook-writeback`](outlook-writeback/) | `create_draft`, `update_draft`, `create_event`, `update_event`, `delete_event` | `Mail.ReadWrite`, `Calendars.ReadWrite` |
+| [`drive-writeback`](drive-writeback/) | `get_item`, `create_folder`, `create_file`, `update_file_content`, `rename_item`, `move_item`, `delete_item` | `Files.ReadWrite.All`, `Sites.Read.All` |
 
-`delete_event` is the only destructive tool, and it's two-step. The first call returns the event's details plus a signed confirmation token and does nothing else; the actual `DELETE` happens only on a second call that echoes that token back. The token is HMAC-signed, bound to the event ID, and expires in five minutes, so a client can't mint its own and skip the round-trip.
+`delete_event` and `delete_item` are the only destructive tools, and both are two-step, confirmation-gated the same way. The first call returns the item's details plus a signed confirmation token and does nothing else; the actual deletion happens only on a second call that echoes that token back. The token is HMAC-signed, bound to the item's ID, and expires in five minutes, so a client can't mint its own and skip the round-trip.
 
 Draft and event IDs are expected to come from the M365 connector's read/search tools in the same conversation — they share a Graph ID space, so no translation is needed. This server never implements its own read or search.
 
@@ -42,11 +43,11 @@ dotnet test --filter "Category!=E2E"
 
 Tests run in three tiers. `Category=Unit` covers payload mapping and the auth machinery with no I/O. `Category=Integration` exercises real request-building and response-deserialization through the Graph SDK against a stubbed HTTP handler — no network, no credentials, about a second end to end. `Category=E2E` talks to real Microsoft Graph against a real mailbox and self-skips unless you've set the environment variables listed in [`outlook-writeback/CLAUDE.md`](outlook-writeback/CLAUDE.md); it can't run in CI.
 
-For a local smoke test against your own Azure dependencies, `cd outlook-writeback && func start` prints the discovered MCP tool list on startup — a much faster loop than deploy-and-poll.
+For a local smoke test against your own Azure dependencies, `cd outlook-writeback && func start` (or `cd drive-writeback && func start`) prints the discovered MCP tool list on startup — a much faster loop than deploy-and-poll.
 
 ## Deploying
 
-See [`outlook-writeback/DEPLOYMENT.md`](outlook-writeback/DEPLOYMENT.md). It's written as a full from-scratch runbook: Entra app registration, resource provisioning, Key Vault wiring, the one-time refresh-token bootstrap, multi-client OAuth via Easy Auth, and an optional custom domain. Every resource name in it is a placeholder for you to substitute.
+See [`outlook-writeback/DEPLOYMENT.md`](outlook-writeback/DEPLOYMENT.md) and [`drive-writeback/DEPLOYMENT.md`](drive-writeback/DEPLOYMENT.md). Each is written as a full from-scratch runbook: Entra app registration, resource provisioning, Key Vault wiring, the one-time refresh-token bootstrap, multi-client OAuth via Easy Auth, and an optional custom domain. Every resource name in them is a placeholder for you to substitute.
 
 Two things worth knowing before you start:
 

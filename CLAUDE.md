@@ -22,20 +22,32 @@ The repo is one codebase for developer convenience only. It is deliberately **no
 ```
 sapidus-writeback-mcp/
 ├── REPO-CONVENTIONS.md          # cross-server rules, read this first
-├── shared/                       # capability-agnostic code only — 7b transport/auth, plus generic non-Graph primitives like confirmation tokens
+├── shared/                       # capability-agnostic code only — see "What belongs in shared/" below
+│   ├── Sapidus.Writeback.Shared/
+│   └── Sapidus.Writeback.Shared.Tests/
 ├── outlook-writeback/
 │   ├── CLAUDE.md                 # build/test commands, runtime specifics for this server
 │   ├── docs/
 │   │   ├── active/                # in-progress specs, not yet shipped
 │   │   └── archive/                # specs for shipped/superseded work
 │   ├── DEPLOYMENT.md
-│   ├── OutlookWriteback.csproj
+│   ├── CHANGELOG.md
+│   ├── version.txt
+│   ├── OutlookWriteback.csproj    # the Functions app
+│   ├── OutlookWriteback.Graph/    # Graph client + auth machinery
+│   ├── OutlookWriteback.Graph.Tests/
+│   ├── OutlookWriteback.Bootstrap/ # one-time refresh-token bootstrap console app
+│   ├── Auth/                      # Key Vault-backed refresh token store
 │   ├── Program.cs
 │   ├── host.json
 │   ├── local.settings.json       # gitignored, local dev only
+│   ├── local.settings.json.example
 │   └── Functions/                # one class per MCP tool
+├── drive-writeback/               # same multi-project shape, already built and deployed
 └── <future-server>/              # same shape: C# Azure Functions project + CLAUDE.md + docs/
 ```
+
+This diagram sketches the target shape, not every file — each server's own `CLAUDE.md` is the source of truth for its actual current structure (build/test commands there name every project).
 
 One folder per server. Each folder is meant to be a complete, independently deployable unit with its own design docs under `docs/`. Before adding a new server folder, follow the checklist in `REPO-CONVENTIONS.md` §8.
 
@@ -46,8 +58,8 @@ For every server folder, the following are separate and never shared across serv
 | Layer | Convention | Example |
 |---|---|---|
 | Entra App Registration | one per server, scoped to only that server's Graph permissions | "Outlook Writeback MCP" — `Mail.ReadWrite`, `Calendars.ReadWrite` only |
-| Resource group | `<server>-rg` | `onedrive-writeback-rg` |
-| Function App | `<server>-func` | `onedrive-writeback-func` |
+| Resource group | `<server>-rg` | `drive-writeback-rg` |
+| Function App | `<server>-func` | `drive-writeback-func` |
 | Key Vault secrets | own entries per server | never reused across servers |
 
 Adding a new capability always means a new folder + new Entra app + new resource group + new Function App — never granting an existing app more scopes. Naming is traceable end-to-end: folder name → resource group → Function App → Entra display name, all built from the same `<server>` string.
@@ -66,8 +78,8 @@ Per the MCP spec, a server has no concept of which AI agent is calling it — it
 
 `shared/` is for genuinely capability-agnostic code. Two categories qualify so far:
 
-1. **The Claude-to-MCP-server auth/transport layer** (each server's PRD calls this "boundary 7b": the bearer token or self-issued OAuth 2.1 layer deciding *who may call this server's tools*, as distinct from *what the server may do in Graph*).
-2. **Generic, non-Graph safety primitives with no server identity baked in** — e.g. `ConfirmationTokenService`, the stateless HMAC-signed token that gates a destructive tool's second, confirming call (originally written for `outlook-writeback`'s `delete_event`, extracted when `drive-writeback`'s `delete_item` needed the identical mechanism). It never calls Graph, never references a Graph model, and each server still supplies its own signing key from its own Key Vault secret — only the mechanism is shared, not runtime state or credentials.
+1. **The Claude-to-MCP-server auth/transport layer** (each server's PRD calls this "boundary 7b": the bearer token or self-issued OAuth 2.1 layer deciding *who may call this server's tools*, as distinct from *what the server may do in Graph*). This is a reserved category, not populated code today — every server's boundary-7b so far is pure Azure Easy Auth platform configuration (App Service Authentication v2 + an Entra Connector app), not application code, so there's nothing to extract into `shared/` yet.
+2. **Generic, non-Graph safety primitives with no server identity baked in** — the only category actually populated in `shared/` right now, via `ConfirmationTokenService` (`shared/Sapidus.Writeback.Shared/Confirmation/`), the stateless HMAC-signed token that gates a destructive tool's second, confirming call (originally written for `outlook-writeback`'s `delete_event`, extracted when `drive-writeback`'s `delete_item` needed the identical mechanism). It never calls Graph, never references a Graph model, and each server still supplies its own signing key from its own Key Vault secret — only the mechanism is shared, not runtime state or credentials.
 
 **Never in `shared/`:** Graph client secrets/certificates/tokens for any specific server, business logic specific to one server's tools, or anything that would require one server's Key Vault access to reach another's.
 

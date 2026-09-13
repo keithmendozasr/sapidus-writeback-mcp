@@ -24,31 +24,29 @@ The repo is one codebase for developer convenience. It is deliberately **not** o
 ```
 sapidus-writeback-mcp/
 ├── REPO-CONVENTIONS.md          # this file
-├── shared/                       # capability-agnostic code only — 7b transport/auth, plus generic non-Graph primitives — see §4
+├── shared/                       # capability-agnostic code only — see §4
+│   ├── Sapidus.Writeback.Shared/
+│   └── Sapidus.Writeback.Shared.Tests/
 ├── outlook-writeback/
 │   ├── CLAUDE.md                 # build/test commands, runtime specifics for this server
 │   ├── docs/
 │   │   ├── active/                # in-progress specs, not yet shipped
 │   │   └── archive/                # specs for shipped/superseded work
-│   ├── OutlookWriteback.csproj
+│   ├── OutlookWriteback.csproj    # the Functions app
+│   ├── OutlookWriteback.Graph/    # Graph client + auth machinery
+│   ├── OutlookWriteback.Graph.Tests/
+│   ├── OutlookWriteback.Bootstrap/ # one-time refresh-token bootstrap console app
+│   ├── Auth/                      # Key Vault-backed refresh token store
 │   ├── Program.cs
 │   ├── host.json
 │   ├── local.settings.json       # gitignored, local dev only
 │   └── Functions/
 │       └── ...                   # one class per MCP tool
-├── onedrive-writeback/           # future — same shape
-│   ├── CLAUDE.md
-│   ├── docs/
-│   │   ├── active/
-│   │   └── archive/
-│   ├── OnedriveWriteback.csproj
-│   ├── Program.cs
-│   ├── host.json
-│   ├── local.settings.json
-│   └── Functions/
-│       └── ...
-└── ...
+├── drive-writeback/              # already shipped — same multi-project shape, also depends on shared/Sapidus.Writeback.Shared
+└── <next-server>/                # future — same shape
 ```
+
+This diagram sketches the target shape, not every file — each server's own `CLAUDE.md` is the source of truth for its actual current structure.
 
 Each server is a C# Azure Functions project (isolated worker model).
 
@@ -61,8 +59,8 @@ For every server folder, all of the following are separate and never shared acro
 | Layer | Convention | Example |
 |---|---|---|
 | Entra App Registration | one per server, scoped to only that server's Graph permissions | "Outlook Writeback MCP" — `Mail.ReadWrite`, `Calendars.ReadWrite` only |
-| Resource group | `<server>-rg` | `onedrive-writeback-rg` |
-| Function App | `<server>-func` | `onedrive-writeback-func` |
+| Resource group | `<server>-rg` | `drive-writeback-rg` |
+| Function App | `<server>-func` | `drive-writeback-func` |
 | Key Vault secrets | own entries per server, never reused across servers | Outlook's Graph client secret is a separate Key Vault secret from any future server's |
 
 **One Function App per MCP server, matching the one-Entra-app-per-server invariant above.** Easy Auth (App Service Authentication v2) is configured at the Function App level, not per-route — there is no way to point different paths within one Function App at different identity providers. Sharing a Function App across two servers would force them to share one boundary-7b Connector app too, which breaks the invariant this section exists to protect. Each server gets its own subdomain (`<server>.<your-domain>`) and its own Flex Consumption plan, never a shared one.

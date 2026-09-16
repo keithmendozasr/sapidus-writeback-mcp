@@ -236,12 +236,63 @@ Opens a browser for a one-time sign-in against the "Outlook Writeback MCP" Entra
 
 ## Deploy
 
+**Automatic as of the CI/CD section below** — merging this server's release-please PR now deploys it to Azure via GitHub Actions. The command below remains for a manual/recovery deploy (e.g. redeploying the same version without a version bump):
+
 ```
 cd outlook-writeback
 func azure functionapp publish <server>-func --dotnet-isolated
 ```
 
-Manual, not CI/CD — reasonable at low deploy frequency for a single-user tool; wire up a pipeline if you deploy often. The `--dotnet-isolated` flag is required; `func` can't otherwise determine the project language when multiple sibling `.csproj` files share this directory.
+The `--dotnet-isolated` flag is required; `func` can't otherwise determine the project language when multiple sibling `.csproj` files share this directory.
+
+## CI/CD: automatic deploy via GitHub Actions
+
+`.github/workflows/release-please.yml` (repo root) runs a `deploy-outlook-writeback` job whenever release-please's own output for this run says `outlook-writeback` was released — i.e. whenever this server's release-please PR gets merged to `main`. That job re-runs the offline test tier, then authenticates to Azure and republishes with the same `func azure functionapp publish --dotnet-isolated` command shown above. It never fires on ordinary commits to `main`, only on the commit that actually cuts a release.
+
+This needs a dedicated deployment identity — separate from the "Outlook Writeback MCP" (boundary-7a) and "Outlook Writeback MCP Connector" (boundary-7b) apps above, per `../REPO-CONVENTIONS.md`'s per-server isolation invariant. It is **not** named with the `"<Server Name> MCP"` pattern from `../REPO-CONVENTIONS.md` §5 — that naming rule governs the two runtime/Graph-facing apps; this one is CI tooling with no Graph scopes at all, so it gets its own naming lane (`<server>-github-deploy`).
+
+### Register the deploy identity and grant it Azure RBAC
+
+1. Create the app and a service principal for it:
+   ```
+   az ad app create --display-name "outlook-writeback-github-deploy" --sign-in-audience AzureADMyOrg --output json
+   az ad sp create --id <deploy-app-id>
+   ```
+2. Add a federated credential trusting GitHub's OIDC issuer for exactly the `main`-branch push trigger this workflow uses — entity type Branch, subject in the `repo:<owner>/<repo>:ref:refs/heads/<branch>` form. `az ad app federated-credential create` is, like `az rest`, an `az.cmd` batch-file invocation on Windows, so it's subject to the same multi-line-quoted-JSON mangling noted elsewhere in this doc — write the body to a file and pass `--parameters @<file>` on PowerShell rather than an inline quoted string:
+
+   PowerShell:
+   ```powershell
+   $body = '{"name": "github-actions-main", "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:keithmendozasr/sapidus-writeback-mcp:ref:refs/heads/main", "audiences": ["api://AzureADTokenExchange"]}'
+   $bodyFile = New-TemporaryFile
+   Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+   az ad app federated-credential create --id <deploy-app-id> --parameters "@$bodyFile"
+   ```
+   bash/Git Bash:
+   ```bash
+   az ad app federated-credential create --id <deploy-app-id> --parameters '{
+     "name": "github-actions-main",
+     "issuer": "https://token.actions.githubusercontent.com",
+     "subject": "repo:keithmendozasr/sapidus-writeback-mcp:ref:refs/heads/main",
+     "audiences": ["api://AzureADTokenExchange"]
+   }'
+   ```
+   **This subject is tied to the exact trigger form.** If a future hardening pass adds a GitHub `environment:` gate to the deploy job (e.g. for a manual-approval step), the subject has to change to `repo:<owner>/<repo>:environment:<name>` to match — a branch-form credential won't satisfy an environment-scoped OIDC request, and the login fails with `AADSTS700213`.
+3. Grant the new service principal **Website Contributor**, scoped to just this server's Function App resource (least-privilege starting point — not the whole resource group):
+
+   PowerShell:
+   ```powershell
+   az role assignment create --assignee <deploy-app-id> --role "Website Contributor" `
+     --scope /subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func
+   ```
+   bash/Git Bash:
+   ```bash
+   az role assignment create --assignee <deploy-app-id> --role "Website Contributor" \
+     --scope /subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func
+   ```
+   If this hits the same `(MissingSubscription) The request did not have a subscription or a valid tenant level resource provider` bug documented in the "Resources provisioned" section's step 5 above, use the same `az rest` PUT workaround there, with the role definition ID for Website Contributor (`de139f84-1756-47ae-9be6-808fbbe84772`) and this scope in place of the Key Vault one. If a real deploy later fails on an authorization error, the error names the missing action — widen the role/scope minimally from there rather than jumping straight to resource-group scope.
+4. Record four values as GitHub repository secrets (Settings → Secrets and variables → Actions): `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` (shared with `drive-writeback`'s own deploy setup — same tenant/subscription), and `AZURE_CLIENT_ID_OUTLOOK_DEPLOY` set to this app's `appId`. `drive-writeback` gets its own `AZURE_CLIENT_ID_DRIVE_DEPLOY` from its own deploy app — the two are never shared, so revoking or rotating one server's deploy credential never touches the other's.
+5. If the deployed Function App's actual name doesn't match the plain `<server>-func` convention (e.g. a disambiguating suffix was needed for global uniqueness — see the "Resources provisioned" section above), also set a GitHub Actions repository **variable** (not secret) named `OUTLOOK_WRITEBACK_FUNCTION_APP_NAME` to the real name; the workflow falls back to `outlook-writeback-func` when it's unset.
 
 ## Wire up Claude Code CLI via system key (superseded — do not use for a fresh deployment)
 

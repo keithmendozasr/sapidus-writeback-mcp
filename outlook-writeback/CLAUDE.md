@@ -32,7 +32,9 @@ This server's canonical version lives in `version.txt` (semver, pre-1.0). [relea
 
 release-please watches Conventional Commit messages on `main` and keeps an up-to-date release PR open scoped to this folder (`outlook-writeback/CHANGELOG.md` + `version.txt` + the `host.json` mirror — see root `release-please-config.json`). Merging that PR cuts an `outlook-writeback-vX.Y.Z` tag and GitHub Release. Pre-1.0, breaking changes bump minor, not major (`bump-minor-pre-major`, set repo-wide).
 
-The release PR is created with the default `GITHUB_TOKEN`, which doesn't itself trigger further Actions workflows on the commits/tags it creates — if a future build/deploy-on-tag workflow needs to fire automatically off a release-please tag, it'll need a PAT or GitHub App token instead.
+The release PR is created with the default `GITHUB_TOKEN`, which doesn't itself trigger further Actions workflows on the commits/tags it creates — a naive tag-triggered deploy workflow would silently never fire.
+
+**Merging that release PR now also deploys this server to Azure automatically**, via a `deploy-outlook-writeback` job in the same `.github/workflows/release-please.yml`, gated on release-please-action's own output from that run rather than a second, tag-triggered workflow (which is what sidesteps the `GITHUB_TOKEN` limitation above without needing a PAT). See `DEPLOYMENT.md`'s "CI/CD: automatic deploy via GitHub Actions" section for the one-time deploy-identity setup this depends on, and its "Deploy" section for the manual/recovery command the pipeline itself runs.
 
 ## Key points for a future implementer
 

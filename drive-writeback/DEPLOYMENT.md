@@ -193,11 +193,45 @@ Opens a browser for a one-time sign-in against the "Drive Writeback MCP" Entra a
 
 ## Deploy
 
+**Automatic as of the CI/CD section below** — merging this server's release-please PR now deploys it to Azure via GitHub Actions. The command below remains for a manual/recovery deploy (e.g. redeploying the same version without a version bump):
+
 ```
 cd drive-writeback
 func azure functionapp publish <server>-func --dotnet-isolated
 ```
-Manual, not CI/CD, same rationale as `outlook-writeback`. The `--dotnet-isolated` flag is required — `func` can't otherwise determine the project language when multiple sibling `.csproj` files share this directory.
+The `--dotnet-isolated` flag is required — `func` can't otherwise determine the project language when multiple sibling `.csproj` files share this directory.
+
+## CI/CD: automatic deploy via GitHub Actions
+
+Same mechanism as `outlook-writeback/DEPLOYMENT.md`'s own "CI/CD" section — `.github/workflows/release-please.yml` (repo root) runs a `deploy-drive-writeback` job whenever release-please's own output for this run says `drive-writeback` was released, i.e. whenever this server's release-please PR gets merged to `main`. That job re-runs the offline test tiers for both `DriveWriteback.Graph.Tests` and `shared/Sapidus.Writeback.Shared.Tests` (this server depends on the shared confirmation-token package), then authenticates to Azure and republishes with the same `func azure functionapp publish --dotnet-isolated` command shown above.
+
+This needs its own dedicated deployment identity, separate from `outlook-writeback`'s and from this server's own boundary-7a/7b apps, per `../REPO-CONVENTIONS.md`'s per-server isolation invariant — not named with the `"<Server Name> MCP"` pattern (that governs the Graph-facing/runtime apps only), so `drive-writeback-github-deploy`.
+
+### Register the deploy identity and grant it Azure RBAC
+
+1. Create the app and a service principal for it:
+   ```
+   az ad app create --display-name "drive-writeback-github-deploy" --sign-in-audience AzureADMyOrg --output json
+   az ad sp create --id <deploy-app-id>
+   ```
+2. Add a federated credential trusting GitHub's OIDC issuer for exactly the `main`-branch push trigger this workflow uses:
+   ```
+   az ad app federated-credential create --id <deploy-app-id> --parameters '{
+     "name": "github-actions-main",
+     "issuer": "https://token.actions.githubusercontent.com",
+     "subject": "repo:keithmendozasr/sapidus-writeback-mcp:ref:refs/heads/main",
+     "audiences": ["api://AzureADTokenExchange"]
+   }'
+   ```
+   **This subject is tied to the exact trigger form** — see `outlook-writeback/DEPLOYMENT.md`'s identical note: an `environment:`-gated deploy job later would need the subject changed to `repo:<owner>/<repo>:environment:<name>` to match, or the login fails with `AADSTS700213`.
+3. Grant the new service principal **Website Contributor**, scoped to just this server's Function App resource:
+   ```
+   az role assignment create --assignee <deploy-app-id> --role "Website Contributor" \
+     --scope /subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func
+   ```
+   If this hits the `(MissingSubscription)` `az role assignment create` bug documented in the "Resources provisioned" section above, use the same `az rest` PUT workaround with role definition ID `de139f84-1756-47ae-9be6-808fbbe84772` (Website Contributor) and this scope. Widen the role/scope minimally if a real deploy later fails on an authorization error naming a missing action — don't jump straight to resource-group scope.
+4. Record four values as GitHub repository secrets: `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` (shared with `outlook-writeback`'s own deploy setup — same tenant/subscription), and `AZURE_CLIENT_ID_DRIVE_DEPLOY` set to this app's `appId`. Never share the client ID secret itself with `outlook-writeback` — each server's deploy credential stays independently revocable.
+5. If the deployed Function App's actual name doesn't match the plain `<server>-func` convention, also set a GitHub Actions repository **variable** (not secret) named `DRIVE_WRITEBACK_FUNCTION_APP_NAME` to the real name; the workflow falls back to `drive-writeback-func` when it's unset.
 
 ## Local smoke test (before touching Azure at all)
 

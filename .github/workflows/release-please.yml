@@ -17,8 +17,82 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      paths_released: ${{ steps.release.outputs.paths_released }}
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Debug release-please outputs
+        run: echo '${{ toJSON(steps.release.outputs) }}'
+
+  deploy-outlook-writeback:
+    needs: release-please
+    if: contains(needs.release-please.outputs.paths_released, 'outlook-writeback')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Run offline tests
+        run: dotnet test outlook-writeback/OutlookWriteback.Graph.Tests/OutlookWriteback.Graph.Tests.csproj --filter "Category!=E2E"
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_OUTLOOK_DEPLOY }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Confirm Azure login
+        run: az account show
+
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+
+      - name: Deploy to Azure Functions
+        working-directory: outlook-writeback
+        run: func azure functionapp publish "${{ vars.OUTLOOK_WRITEBACK_FUNCTION_APP_NAME || 'outlook-writeback-func' }}" --dotnet-isolated
+
+  deploy-drive-writeback:
+    needs: release-please
+    if: contains(needs.release-please.outputs.paths_released, 'drive-writeback')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Run offline tests
+        run: |
+          dotnet test drive-writeback/DriveWriteback.Graph.Tests/DriveWriteback.Graph.Tests.csproj --filter "Category!=E2E"
+          dotnet test shared/Sapidus.Writeback.Shared.Tests/Sapidus.Writeback.Shared.Tests.csproj
+
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_DRIVE_DEPLOY }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Confirm Azure login
+        run: az account show
+
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+
+      - name: Deploy to Azure Functions
+        working-directory: drive-writeback
+        run: func azure functionapp publish "${{ vars.DRIVE_WRITEBACK_FUNCTION_APP_NAME || 'drive-writeback-func' }}" --dotnet-isolated

@@ -258,8 +258,18 @@ This needs a dedicated deployment identity — separate from the "Outlook Writeb
    az ad app create --display-name "outlook-writeback-github-deploy" --sign-in-audience AzureADMyOrg --output json
    az ad sp create --id <deploy-app-id>
    ```
-2. Add a federated credential trusting GitHub's OIDC issuer for exactly the `main`-branch push trigger this workflow uses — entity type Branch, subject in the `repo:<owner>/<repo>:ref:refs/heads/<branch>` form:
+2. Add a federated credential trusting GitHub's OIDC issuer for exactly the `main`-branch push trigger this workflow uses — entity type Branch, subject in the `repo:<owner>/<repo>:ref:refs/heads/<branch>` form. `az ad app federated-credential create` is, like `az rest`, an `az.cmd` batch-file invocation on Windows, so it's subject to the same multi-line-quoted-JSON mangling noted elsewhere in this doc — write the body to a file and pass `--parameters @<file>` on PowerShell rather than an inline quoted string:
+
+   PowerShell:
+   ```powershell
+   $body = '{"name": "github-actions-main", "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:keithmendozasr/sapidus-writeback-mcp:ref:refs/heads/main", "audiences": ["api://AzureADTokenExchange"]}'
+   $bodyFile = New-TemporaryFile
+   Set-Content -Path $bodyFile -Value $body -NoNewline -Encoding utf8NoBOM
+
+   az ad app federated-credential create --id <deploy-app-id> --parameters "@$bodyFile"
    ```
+   bash/Git Bash:
+   ```bash
    az ad app federated-credential create --id <deploy-app-id> --parameters '{
      "name": "github-actions-main",
      "issuer": "https://token.actions.githubusercontent.com",
@@ -269,7 +279,14 @@ This needs a dedicated deployment identity — separate from the "Outlook Writeb
    ```
    **This subject is tied to the exact trigger form.** If a future hardening pass adds a GitHub `environment:` gate to the deploy job (e.g. for a manual-approval step), the subject has to change to `repo:<owner>/<repo>:environment:<name>` to match — a branch-form credential won't satisfy an environment-scoped OIDC request, and the login fails with `AADSTS700213`.
 3. Grant the new service principal **Website Contributor**, scoped to just this server's Function App resource (least-privilege starting point — not the whole resource group):
+
+   PowerShell:
+   ```powershell
+   az role assignment create --assignee <deploy-app-id> --role "Website Contributor" `
+     --scope /subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func
    ```
+   bash/Git Bash:
+   ```bash
    az role assignment create --assignee <deploy-app-id> --role "Website Contributor" \
      --scope /subscriptions/<sub-id>/resourceGroups/<server>-rg/providers/Microsoft.Web/sites/<server>-func
    ```

@@ -93,6 +93,29 @@ public class DeleteEventToolTests
     }
 
     [Test]
+    public async Task RunAsync_logs_preview_request_count_with_event_ids_kept_out_of_the_message()
+    {
+        var handler = new StubHttpMessageHandler(request => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+        {
+            Content = new StringContent("""{"error":{"code":"ErrorItemNotFound","message":"not found"}}""", Encoding.UTF8, "application/json"),
+        }));
+        var logger = new RecordingLogger<DeleteEventTool>();
+        var tool = CreateTool(handler, logger: logger);
+
+        await tool.RunAsync(null!, ["event-1", "event-2"], null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(logger.Messages, Has.Some.Contains("requested-count=2"));
+            Assert.That(logger.Messages, Has.None.Contains("event-1").Or.Contains("event-2"));
+
+            var eventIds = logger.Properties.SelectMany(p => p).Where(kvp => kvp.Key == "EventIds").Select(kvp => kvp.Value);
+
+            Assert.That(eventIds, Has.Some.EqualTo(new[] { "event-1", "event-2" }));
+        });
+    }
+
+    [Test]
     public async Task RunAsync_confirms_and_summarizes_deleted_and_failed_events()
     {
         var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"));

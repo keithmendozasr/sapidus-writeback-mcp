@@ -55,4 +55,37 @@ public class DeleteEventToolTests
 
         Assert.That(result, Does.Contain("invalid or expired"));
     }
+
+    [Test]
+    public async Task RunAsync_previews_found_and_not_found_events_without_deleting()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var eventId = request.RequestUri!.AbsolutePath.Split('/')[^1];
+
+            if (eventId == "missing-event")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(
+                        """{"error":{"code":"ErrorItemNotFound","message":"not found"}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($$"""{"id":"{{eventId}}","subject":"Standup"}""", Encoding.UTF8, "application/json"),
+            });
+        });
+        var tool = CreateTool(handler);
+
+        var result = await tool.RunAsync(null!, ["found-event", "missing-event"], null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain("Standup"));
+            Assert.That(result, Does.Contain("NOT FOUND: missing-event"));
+            Assert.That(result, Does.Contain("This has NOT been deleted yet"));
+        });
+    }
 }

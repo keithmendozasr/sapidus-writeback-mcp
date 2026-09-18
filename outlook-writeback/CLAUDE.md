@@ -4,7 +4,9 @@ Server-specific guidance for working in this folder. Cross-server rules live in 
 
 ## Status
 
-All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. Full implementation history and design rationale live in `docs/archive/` (`prd-create-update.md`, `prd-calendar-tz-reminder.md`, `prd-multi-recipient.md` — all `Status: Completed`) and `DEPLOYMENT.md` (the operational runbook) — not duplicated here. There is currently nothing in `docs/active/` — the folder doesn't exist in this server's `docs/` right now.
+All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. Full implementation history and design rationale live in `docs/archive/` (`prd-create-update.md`, `prd-calendar-tz-reminder.md`, `prd-multi-recipient.md` — all `Status: Completed`) and `DEPLOYMENT.md` (the operational runbook) — not duplicated here.
+
+**In progress:** `docs/active/prd-batch-event-deletion.md` (closes [issue #19](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/19)) — design approved, implementation not started. Extends `delete_event` to preview/confirm a list of events under one shared confirmation token instead of one token per event, and folds in migrating this server off its private `DeleteConfirmationTokenService` onto `shared/Sapidus.Writeback.Shared`'s `ConfirmationTokenService`.
 
 ## Runtime
 

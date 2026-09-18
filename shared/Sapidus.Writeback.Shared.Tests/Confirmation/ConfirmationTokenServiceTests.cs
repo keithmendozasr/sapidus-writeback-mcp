@@ -128,4 +128,49 @@ public class ConfirmationTokenServiceTests
             Assert.That(result.AuthorizedIds, Is.EquivalentTo(new[] { "event-1" }));
         });
     }
+
+    [Test]
+    public void ValidateSubset_rejects_the_whole_token_when_signed_with_a_different_key()
+    {
+        var issuingService = new ConfirmationTokenService(
+            Encoding.UTF8.GetBytes("key-one"),
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var validatingService = new ConfirmationTokenService(
+            Encoding.UTF8.GetBytes("key-two"),
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        var token = issuingService.IssueBatch(["event-1", "event-2"]);
+        var result = validatingService.ValidateSubset(["event-1"], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TokenValid, Is.False);
+            Assert.That(result.AuthorizedIds, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void ValidateSubset_rejects_the_whole_token_when_tampered_with()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        var token = service.IssueBatch(["event-1", "event-2"]);
+        var payload = token.Split('.')[0];
+        var tampered = token.Replace(payload, payload + "x");
+
+        Assert.That(service.ValidateSubset(["event-1"], tampered).TokenValid, Is.False);
+    }
+
+    [Test]
+    public void ValidateSubset_rejects_the_whole_token_after_its_ttl_has_elapsed()
+    {
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var service = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), timeProvider);
+
+        var token = service.IssueBatch(["event-1", "event-2"]);
+        timeProvider.Now = timeProvider.Now.AddMinutes(6);
+
+        Assert.That(service.ValidateSubset(["event-1"], token).TokenValid, Is.False);
+    }
 }

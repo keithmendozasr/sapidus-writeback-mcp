@@ -1,4 +1,5 @@
 using Microsoft.Graph.Models;
+using Sapidus.Writeback.Shared.Confirmation;
 
 namespace OutlookWriteback.Graph.Confirmation;
 
@@ -7,7 +8,7 @@ namespace OutlookWriteback.Graph.Confirmation;
 /// event and issues a confirmation token without deleting anything; the second call only
 /// deletes once that same token validates for the same event ID.
 /// </summary>
-public sealed class EventDeletionService(OutlookGraphClient client, DeleteConfirmationTokenService tokenService)
+public sealed class EventDeletionService(OutlookGraphClient client, ConfirmationTokenService tokenService)
 {
     public async Task<PendingEventDeletion> RequestDeletionAsync(string eventId, CancellationToken cancellationToken = default)
     {

@@ -4,6 +4,7 @@ using Microsoft.Graph;
 using Microsoft.Kiota.Abstractions.Authentication;
 using OutlookWriteback.Graph.Confirmation;
 using OutlookWriteback.Graph.Tests.TestSupport;
+using Sapidus.Writeback.Shared.Confirmation;
 
 namespace OutlookWriteback.Graph.Tests.Confirmation;
 
@@ -20,7 +21,7 @@ public class EventDeletionServiceTests
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
         var graphClient = new OutlookGraphClient(new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider()));
-        var tokenService = new DeleteConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
 
         return new EventDeletionService(graphClient, tokenService);
     }
@@ -55,7 +56,7 @@ public class EventDeletionServiceTests
     public async Task ConfirmDeletionAsync_deletes_when_the_token_is_valid_for_the_same_event()
     {
         var now = DateTimeOffset.UtcNow;
-        var tokenService = new DeleteConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"), new FakeTimeProvider(now));
         var token = tokenService.Issue("AAkA-fake-event-id");
 
         var handler = new StubHttpMessageHandler(request =>

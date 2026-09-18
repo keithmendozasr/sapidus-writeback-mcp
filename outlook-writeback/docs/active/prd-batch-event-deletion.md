@@ -1,7 +1,7 @@
 # PRD: Batch Calendar Event Deletion
 
 **Owner:** Keith Mendoza
-**Status:** Draft — design approved, implementation not started
+**Status:** Implemented — pending deployment
 **Target platform:** Azure
 **Language:** C#
 **Target clients:** Claude Desktop, Claude Cowork, Claude Code CLI

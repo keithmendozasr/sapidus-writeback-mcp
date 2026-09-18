@@ -1,10 +1,12 @@
+using System.Collections;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
+using Microsoft.Extensions.Logging;
 using OutlookWriteback.Graph.Confirmation;
 
 namespace OutlookWriteback.Functions;
 
-public sealed class DeleteEventTool(EventDeletionService deletionService)
+public sealed class DeleteEventTool(EventDeletionService deletionService, ILogger<DeleteEventTool> logger)
 {
     [Function(nameof(DeleteEventTool))]
     public async Task<string> RunAsync(
@@ -36,6 +38,8 @@ public sealed class DeleteEventTool(EventDeletionService deletionService)
 
         if (confirmationToken is null)
         {
+            LogWithEventIds(logger, $"delete_event: outcome=preview requested-count={eventIds.Length}", eventIds);
+
             var preview = await deletionService.RequestDeletionAsync(eventIds);
             var lines = preview.Events.Select(e => e.Found
                 ? $"- \"{e.Subject}\" ({FormatWhen(e)}, event ID: {e.EventId})"
@@ -45,6 +49,8 @@ public sealed class DeleteEventTool(EventDeletionService deletionService)
                 "\n\nThis has NOT been deleted yet. If the user confirms, call delete_event again with the eventIds " +
                 $"to delete (drop any you don't want deleted) and confirmationToken=\"{preview.ConfirmationToken}\".";
         }
+
+        LogWithEventIds(logger, $"delete_event: outcome=confirmed requested-count={eventIds.Length}", eventIds);
 
         var result = await deletionService.ConfirmDeletionAsync(eventIds, confirmationToken);
 
@@ -64,4 +70,26 @@ public sealed class DeleteEventTool(EventDeletionService deletionService)
 
     private static string FormatWhen(PreviewedEventDeletion e) =>
         e.Start is null ? "unknown time" : $"{e.Start.DateTime} to {e.End?.DateTime} ({e.Start.TimeZone})";
+
+    // Carries eventIds as structured state (an ApplicationInsights customDimension) instead of interpolating them into message.
+    private static void LogWithEventIds(ILogger logger, string message, string[] eventIds) =>
+        logger.Log(LogLevel.Information, eventId: default, new EventIdsLogState(message, eventIds), exception: null, static (state, _) => state.Message);
+
+    private sealed class EventIdsLogState(string message, string[] eventIds) : IReadOnlyList<KeyValuePair<string, object?>>
+    {
+        public string Message { get; } = message;
+
+        public int Count => 1;
+
+        public KeyValuePair<string, object?> this[int index] => index == 0
+            ? new KeyValuePair<string, object?>("EventIds", eventIds)
+            : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator()
+        {
+            yield return this[0];
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }

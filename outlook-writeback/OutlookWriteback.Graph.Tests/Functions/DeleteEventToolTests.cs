@@ -13,13 +13,16 @@ namespace OutlookWriteback.Graph.Tests.Functions;
 [Category("Unit")]
 public class DeleteEventToolTests
 {
-    private static DeleteEventTool CreateTool(StubHttpMessageHandler handler, ConfirmationTokenService? tokenService = null)
+    private static DeleteEventTool CreateTool(
+        StubHttpMessageHandler handler,
+        ConfirmationTokenService? tokenService = null,
+        RecordingLogger<DeleteEventTool>? logger = null)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") };
         var graphClient = new OutlookGraphClient(new GraphServiceClient(httpClient, new AnonymousAuthenticationProvider()));
         var deletionService = new EventDeletionService(graphClient, tokenService ?? new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key")));
 
-        return new DeleteEventTool(deletionService);
+        return new DeleteEventTool(deletionService, logger ?? new RecordingLogger<DeleteEventTool>());
     }
 
     [Test]

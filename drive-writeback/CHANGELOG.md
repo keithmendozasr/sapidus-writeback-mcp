@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/keithmendozasr/sapidus-writeback-mcp/compare/drive-writeback-0.2.0...drive-writeback-0.3.0) (2026-09-18)
+
+
+### Features
+
+* **outlook-writeback:** batch-shape delete_event confirmation ([#24](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/24)) ([38ad13b](https://github.com/keithmendozasr/sapidus-writeback-mcp/commit/38ad13bf5ad93b26aa7ee230f82b2603fbc76371))
+
 ## [0.2.0](https://github.com/keithmendozasr/sapidus-writeback-mcp/compare/drive-writeback-0.1.0...drive-writeback-0.2.0) (2026-09-05)
 
 

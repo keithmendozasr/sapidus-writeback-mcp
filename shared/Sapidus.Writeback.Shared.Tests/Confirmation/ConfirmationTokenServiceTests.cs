@@ -173,4 +173,31 @@ public class ConfirmationTokenServiceTests
 
         Assert.That(service.ValidateSubset(["event-1"], token).TokenValid, Is.False);
     }
+
+    [Test]
+    [TestCase("")]
+    [TestCase("not-a-token")]
+    [TestCase("too.many.parts")]
+    [TestCase("not-valid-base64!.also-not-valid-base64!")]
+    public void ValidateSubset_rejects_malformed_tokens_without_throwing(string malformedToken)
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        Assert.That(service.ValidateSubset(["event-1"], malformedToken).TokenValid, Is.False);
+    }
+
+    [Test]
+    public void IssueBatch_and_ValidateSubset_round_trip_regardless_of_id_order()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+
+        var token = service.IssueBatch(["event-3", "event-1", "event-2"]);
+        var result = service.ValidateSubset(["event-2", "event-1"], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TokenValid, Is.True);
+            Assert.That(result.AuthorizedIds, Is.EquivalentTo(new[] { "event-1", "event-2" }));
+        });
+    }
 }

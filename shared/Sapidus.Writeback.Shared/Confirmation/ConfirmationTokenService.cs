@@ -26,6 +26,12 @@ public sealed class ConfirmationTokenService(byte[] signingKey, TimeProvider? ti
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(5);
 
+    // ASCII Unit Separator - a control character that can't appear in a Graph resource id,
+    // used only to canonicalize a batch token's id set into the single opaque resourceId
+    // string Issue/TryDecode already know how to carry. Never appears in the token string
+    // itself (which is base64url text) - only in the decoded payload bytes.
+    private const char IdSetDelimiter = '';
+
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public string Issue(string resourceId)
@@ -43,6 +49,38 @@ public sealed class ConfirmationTokenService(byte[] signingKey, TimeProvider? ti
             return false;
 
         return decodedResourceId == resourceId && _timeProvider.GetUtcNow() <= expiresAt;
+    }
+
+    /// <summary>
+    /// Issues one token covering a whole set of resource ids, for a batch destructive action
+    /// gated by a single confirmation round trip instead of one token per id. The set is
+    /// canonicalized (deduplicated, sorted) before signing so token content doesn't depend on
+    /// caller-supplied ordering or duplicates.
+    /// </summary>
+    public string IssueBatch(IEnumerable<string> resourceIds)
+    {
+        var canonicalIds = resourceIds.Distinct(StringComparer.Ordinal).OrderBy(id => id, StringComparer.Ordinal);
+
+        return Issue(string.Join(IdSetDelimiter, canonicalIds));
+    }
+
+    /// <summary>
+    /// Validates a batch token and reports which of the caller's requestedIds are authorized
+    /// by it. TokenValid is false for a missing/tampered/expired/malformed token - an
+    /// all-or-nothing failure, same as Validate. When TokenValid is true, AuthorizedIds is the
+    /// subset of requestedIds that were part of the original IssueBatch call; an id outside
+    /// the original set is simply absent from AuthorizedIds rather than invalidating the whole
+    /// token - the caller is expected to reject that id individually.
+    /// </summary>
+    public BatchValidationResult ValidateSubset(IEnumerable<string> requestedIds, string token)
+    {
+        if (!TryDecode(token, out var encodedIdSet, out var expiresAt) || _timeProvider.GetUtcNow() > expiresAt)
+            return new BatchValidationResult(TokenValid: false, AuthorizedIds: new HashSet<string>());
+
+        var originalIds = encodedIdSet.Split(IdSetDelimiter).ToHashSet(StringComparer.Ordinal);
+        var authorizedIds = requestedIds.Where(originalIds.Contains).ToHashSet(StringComparer.Ordinal);
+
+        return new BatchValidationResult(TokenValid: true, AuthorizedIds: authorizedIds);
     }
 
     private bool TryDecode(string token, out string resourceId, out DateTimeOffset expiresAt)
@@ -94,3 +132,12 @@ public sealed class ConfirmationTokenService(byte[] signingKey, TimeProvider? ti
         return Convert.FromBase64String(padded);
     }
 }
+
+/// <summary>
+/// Result of ConfirmationTokenService.ValidateSubset. When TokenValid is false, AuthorizedIds
+/// is always empty and the whole confirming call should be rejected (invalid/expired token).
+/// When TokenValid is true, AuthorizedIds is the subset of the requested ids that were part of
+/// the original batch - any requested id missing from it was not part of that batch and should
+/// be rejected individually, not by failing the whole call.
+/// </summary>
+public sealed record BatchValidationResult(bool TokenValid, IReadOnlySet<string> AuthorizedIds);

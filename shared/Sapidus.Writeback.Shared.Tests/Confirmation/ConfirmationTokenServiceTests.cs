@@ -82,4 +82,50 @@ public class ConfirmationTokenServiceTests
 
         Assert.That(service.Validate("fake-resource-id", malformedToken), Is.False);
     }
+
+    [Test]
+    public void ValidateSubset_authorizes_every_previewed_id_when_the_full_set_is_reconfirmed()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+        var ids = new[] { "event-1", "event-2", "event-3" };
+
+        var token = service.IssueBatch(ids);
+        var result = service.ValidateSubset(ids, token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TokenValid, Is.True);
+            Assert.That(result.AuthorizedIds, Is.EquivalentTo(ids));
+        });
+    }
+
+    [Test]
+    public void ValidateSubset_authorizes_only_the_resent_subset_when_some_ids_are_dropped()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+        var token = service.IssueBatch(["event-1", "event-2", "event-3"]);
+
+        var result = service.ValidateSubset(["event-1", "event-3"], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TokenValid, Is.True);
+            Assert.That(result.AuthorizedIds, Is.EquivalentTo(new[] { "event-1", "event-3" }));
+        });
+    }
+
+    [Test]
+    public void ValidateSubset_does_not_authorize_an_id_outside_the_originally_issued_set()
+    {
+        var service = CreateService(DateTimeOffset.UtcNow);
+        var token = service.IssueBatch(["event-1", "event-2"]);
+
+        var result = service.ValidateSubset(["event-1", "not-previewed"], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.TokenValid, Is.True);
+            Assert.That(result.AuthorizedIds, Is.EquivalentTo(new[] { "event-1" }));
+        });
+    }
 }

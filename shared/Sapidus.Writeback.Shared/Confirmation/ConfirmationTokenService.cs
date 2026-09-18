@@ -39,6 +39,17 @@ public sealed class ConfirmationTokenService(byte[] signingKey, TimeProvider? ti
 
     public bool Validate(string resourceId, string token)
     {
+        if (!TryDecode(token, out var decodedResourceId, out var expiresAt))
+            return false;
+
+        return decodedResourceId == resourceId && _timeProvider.GetUtcNow() <= expiresAt;
+    }
+
+    private bool TryDecode(string token, out string resourceId, out DateTimeOffset expiresAt)
+    {
+        resourceId = "";
+        expiresAt = default;
+
         var parts = token.Split('.');
 
         if (parts.Length != 2)
@@ -61,10 +72,13 @@ public sealed class ConfirmationTokenService(byte[] signingKey, TimeProvider? ti
 
         var payloadParts = Encoding.UTF8.GetString(payload).Split('|', 2);
 
-        if (payloadParts.Length != 2 || payloadParts[0] != resourceId || !long.TryParse(payloadParts[1], out var expiresAt))
+        if (payloadParts.Length != 2 || !long.TryParse(payloadParts[1], out var expiresAtSeconds))
             return false;
 
-        return _timeProvider.GetUtcNow() <= DateTimeOffset.FromUnixTimeSeconds(expiresAt);
+        resourceId = payloadParts[0];
+        expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiresAtSeconds);
+
+        return true;
     }
 
     private byte[] Sign(byte[] payload) => HMACSHA256.HashData(signingKey, payload);

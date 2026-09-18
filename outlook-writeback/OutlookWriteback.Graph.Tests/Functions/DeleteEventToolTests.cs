@@ -88,4 +88,36 @@ public class DeleteEventToolTests
             Assert.That(result, Does.Contain("This has NOT been deleted yet"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_confirms_and_summarizes_deleted_and_failed_events()
+    {
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"));
+        var token = tokenService.IssueBatch(["event-1", "event-2"]);
+
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var eventId = request.RequestUri!.AbsolutePath.Split('/')[^1];
+
+            if (eventId == "event-1")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(
+                        """{"error":{"code":"ErrorItemNotFound","message":"already deleted"}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                });
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+        });
+        var tool = CreateTool(handler, tokenService);
+
+        var result = await tool.RunAsync(null!, ["event-1", "event-2"], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.StartWith("1 of 2 deleted."));
+            Assert.That(result, Does.Contain("event-1"));
+        });
+    }
 }

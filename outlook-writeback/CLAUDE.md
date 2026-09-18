@@ -4,7 +4,9 @@ Server-specific guidance for working in this folder. Cross-server rules live in 
 
 ## Status
 
-All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. Full implementation history and design rationale live in `docs/archive/` (`prd-create-update.md`, `prd-calendar-tz-reminder.md`, `prd-multi-recipient.md` — all `Status: Completed`) and `DEPLOYMENT.md` (the operational runbook) — not duplicated here. There is currently nothing in `docs/active/` — the folder doesn't exist in this server's `docs/` right now.
+All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost hardening) are complete. Full implementation history and design rationale live in `docs/archive/` (`prd-create-update.md`, `prd-calendar-tz-reminder.md`, `prd-multi-recipient.md` — all `Status: Completed`) and `DEPLOYMENT.md` (the operational runbook) — not duplicated here.
+
+**Implemented, pending deployment:** `docs/active/prd-batch-event-deletion.md` (closes [issue #19](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/19)) — `delete_event` now previews/confirms a batch of up to 25 events under one shared confirmation token instead of one token per event, and this server has been migrated off its private `DeleteConfirmationTokenService` onto `shared/Sapidus.Writeback.Shared`'s `ConfirmationTokenService` (which gained the new `IssueBatch`/`ValidateSubset` batch methods). `dotnet test --filter "Category!=E2E"` is green. This moves to `docs/archive/` (and its `Status` flips to `Completed`) once actually deployed to production, per root `CLAUDE.md`'s document-maintenance rule.
 
 ## Runtime
 
@@ -40,7 +42,8 @@ The release PR is created with the default `GITHUB_TOKEN`, which doesn't itself 
 
 - Scopes: `Mail.ReadWrite` and `Calendars.ReadWrite` only. No `Mail.Send` — the server can create/update drafts but structurally cannot send.
 - Tools: `create_draft`, `update_draft`, `create_event`, `update_event`, `delete_event`.
-- `delete_event` is the only destructive tool and is two-step, confirmation-gated: the first call returns event details + a confirmation token and does nothing destructive; the actual `DELETE` only happens on a second call that echoes that token back.
+- `delete_event` is the only destructive tool and is two-step, confirmation-gated, batch-capable (1-25 event IDs per call): the first call returns each event's details (or a not-found marker) plus one confirmation token covering the whole requested set, and does nothing destructive. The second call echoes that token back along with any non-empty subset of the previewed IDs (dropping some is not an error — it's how a caller excludes an event after reviewing the preview); an ID outside the previewed set is rejected individually rather than invalidating the whole call, and one event's Graph failure doesn't block the rest of the batch.
+- `delete_event` logs one Information-level line per call (`DeleteEventTool`'s `LogWithEventIds`): the message reports the requested event-ID count in the text itself (`outcome=preview`/`outcome=confirmed requested-count=N`); both `EventIds` (the array) and `RequestedCount` also ride as structured log state, landing as their own ApplicationInsights customDimensions, with `EventIds` never appearing in the rendered log text itself.
 - Drafts with attachments are rejected outright (no attachment support).
 - Event/draft IDs are expected to come from the M365 connector's read/search tools in the same conversation (shared Graph ID space) — this server never implements its own read/search.
 - Compute: Azure Functions, C# (isolated worker model), HTTP trigger, Flex Consumption plan.

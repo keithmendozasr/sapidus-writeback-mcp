@@ -8,6 +8,7 @@ using OutlookWriteback.Auth;
 using OutlookWriteback.Graph;
 using OutlookWriteback.Graph.Auth;
 using OutlookWriteback.Graph.Confirmation;
+using Sapidus.Writeback.Shared.Confirmation;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -38,10 +39,10 @@ builder.Services.AddSingleton(sp => OutlookGraphClient.CreateWithSilentRefreshAu
     ["Mail.ReadWrite", "Calendars.ReadWrite"],
     sp.GetRequiredService<IRefreshTokenStore>()));
 
-builder.Services.AddSingleton(new DeleteConfirmationTokenService(Convert.FromBase64String(confirmationSigningKey)));
+builder.Services.AddSingleton(new ConfirmationTokenService(Convert.FromBase64String(confirmationSigningKey)));
 
 builder.Services.AddSingleton(sp => new EventDeletionService(
     sp.GetRequiredService<OutlookGraphClient>(),
-    sp.GetRequiredService<DeleteConfirmationTokenService>()));
+    sp.GetRequiredService<ConfirmationTokenService>()));
 
 builder.Build().Run();

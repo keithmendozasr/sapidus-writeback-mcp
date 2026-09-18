@@ -79,15 +79,19 @@ public sealed class DeleteEventTool(EventDeletionService deletionService, ILogge
     {
         public string Message { get; } = message;
 
-        public int Count => 1;
+        public int Count => 2;
 
-        public KeyValuePair<string, object?> this[int index] => index == 0
-            ? new KeyValuePair<string, object?>("EventIds", eventIds)
-            : throw new ArgumentOutOfRangeException(nameof(index));
+        public KeyValuePair<string, object?> this[int index] => index switch
+        {
+            0 => new KeyValuePair<string, object?>("EventIds", eventIds),
+            1 => new KeyValuePair<string, object?>("RequestedCount", eventIds.Length),
+            _ => throw new ArgumentOutOfRangeException(nameof(index)),
+        };
 
         public IEnumerator<KeyValuePair<string, object?>> GetEnumerator()
         {
             yield return this[0];
+            yield return this[1];
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();

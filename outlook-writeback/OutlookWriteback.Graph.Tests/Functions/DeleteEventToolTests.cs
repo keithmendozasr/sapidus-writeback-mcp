@@ -146,4 +146,26 @@ public class DeleteEventToolTests
             Assert.That(result, Does.Contain("event-1"));
         });
     }
+
+    [Test]
+    public async Task RunAsync_logs_confirm_request_count_with_event_ids_kept_out_of_the_message()
+    {
+        var tokenService = new ConfirmationTokenService(Encoding.UTF8.GetBytes("test-signing-key"));
+        var token = tokenService.IssueBatch(["event-1", "event-2"]);
+        var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent)));
+        var logger = new RecordingLogger<DeleteEventTool>();
+        var tool = CreateTool(handler, tokenService, logger);
+
+        await tool.RunAsync(null!, ["event-1", "event-2"], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(logger.Messages, Has.Some.Contains("requested-count=2"));
+            Assert.That(logger.Messages, Has.None.Contains("event-1").Or.Contains("event-2"));
+
+            var eventIds = logger.Properties.SelectMany(p => p).Where(kvp => kvp.Key == "EventIds").Select(kvp => kvp.Value);
+
+            Assert.That(eventIds, Has.Some.EqualTo(new[] { "event-1", "event-2" }));
+        });
+    }
 }

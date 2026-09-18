@@ -109,9 +109,12 @@ public class DeleteEventToolTests
             Assert.That(logger.Messages, Has.Some.Contains("requested-count=2"));
             Assert.That(logger.Messages, Has.None.Contains("event-1").Or.Contains("event-2"));
 
-            var eventIds = logger.Properties.SelectMany(p => p).Where(kvp => kvp.Key == "EventIds").Select(kvp => kvp.Value);
+            var properties = logger.Properties.SelectMany(p => p).ToList();
+            var eventIds = properties.Where(kvp => kvp.Key == "EventIds").Select(kvp => kvp.Value);
+            var requestedCounts = properties.Where(kvp => kvp.Key == "RequestedCount").Select(kvp => kvp.Value);
 
             Assert.That(eventIds, Has.Some.EqualTo(new[] { "event-1", "event-2" }));
+            Assert.That(requestedCounts, Has.Some.EqualTo(2));
         });
     }
 
@@ -163,9 +166,12 @@ public class DeleteEventToolTests
             Assert.That(logger.Messages, Has.Some.Contains("requested-count=2"));
             Assert.That(logger.Messages, Has.None.Contains("event-1").Or.Contains("event-2"));
 
-            var eventIds = logger.Properties.SelectMany(p => p).Where(kvp => kvp.Key == "EventIds").Select(kvp => kvp.Value);
+            var properties = logger.Properties.SelectMany(p => p).ToList();
+            var eventIds = properties.Where(kvp => kvp.Key == "EventIds").Select(kvp => kvp.Value);
+            var requestedCounts = properties.Where(kvp => kvp.Key == "RequestedCount").Select(kvp => kvp.Value);
 
             Assert.That(eventIds, Has.Some.EqualTo(new[] { "event-1", "event-2" }));
+            Assert.That(requestedCounts, Has.Some.EqualTo(2));
         });
     }
 }

@@ -1,6 +1,7 @@
 using Azure.Identity;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Microsoft.Kiota.Abstractions;
 using OutlookWriteback.Graph.Auth;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("OutlookWriteback.Graph.Tests")]
@@ -101,12 +102,13 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
         int? reminderMinutesBeforeStart = null,
+        RecurrenceSpec? recurrence = null,
         CancellationToken cancellationToken = default)
     {
         if (reminderMinutesBeforeStart is < 0)
             throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
 
-        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart);
+        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
         var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -203,7 +205,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? location,
         string? bodyText,
         IEnumerable<string>? attendeeAddresses = null,
-        int? reminderMinutesBeforeStart = null)
+        int? reminderMinutesBeforeStart = null,
+        RecurrenceSpec? recurrence = null)
     {
         var calendarEvent = new Event
         {
@@ -211,6 +214,9 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             Start = ToGraphDateTime(start, timeZone),
             End = ToGraphDateTime(end, timeZone),
         };
+
+        if (recurrence is not null)
+            calendarEvent.Recurrence = BuildRecurrence(recurrence, LocalDate(start, timeZone), timeZone);
 
         if (location is not null)
             calendarEvent.Location = new Location { DisplayName = location };
@@ -228,6 +234,107 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         }
 
         return calendarEvent;
+    }
+
+    /// <summary>
+    /// Maps a validated <see cref="RecurrenceSpec"/> to Graph's patternedRecurrence. Graph rejects pattern
+    /// properties a type doesn't use, so each type sets only its own. The range starts on the event's
+    /// local start date (the first occurrence) and is evaluated in the event's time zone.
+    /// </summary>
+    internal static PatternedRecurrence BuildRecurrence(RecurrenceSpec spec, DateOnly localStart, string timeZone)
+    {
+        spec.ValidateAgainstStart(localStart);
+
+        var pattern = new RecurrencePattern { Interval = spec.Interval };
+
+        switch (spec.Frequency)
+        {
+            case RecurrenceFrequency.Daily:
+                pattern.Type = RecurrencePatternType.Daily;
+                break;
+
+            case RecurrenceFrequency.Weekly:
+                pattern.Type = RecurrencePatternType.Weekly;
+                pattern.DaysOfWeek = [.. spec.DaysOfWeek.Select(ToGraphDay)];
+                pattern.FirstDayOfWeek = DayOfWeekObject.Sunday;
+                break;
+
+            case RecurrenceFrequency.Monthly when spec.IsRelative:
+                pattern.Type = RecurrencePatternType.RelativeMonthly;
+                pattern.DaysOfWeek = [.. spec.DaysOfWeek.Select(ToGraphDay)];
+                pattern.Index = ToGraphIndex(spec.WeekIndex!.Value);
+                break;
+
+            case RecurrenceFrequency.Monthly:
+                pattern.Type = RecurrencePatternType.AbsoluteMonthly;
+                pattern.DayOfMonth = localStart.Day;
+                break;
+
+            case RecurrenceFrequency.Yearly when spec.IsRelative:
+                pattern.Type = RecurrencePatternType.RelativeYearly;
+                pattern.DaysOfWeek = [.. spec.DaysOfWeek.Select(ToGraphDay)];
+                pattern.Index = ToGraphIndex(spec.WeekIndex!.Value);
+                pattern.Month = spec.EffectiveMonth(localStart);
+                break;
+
+            default:
+                pattern.Type = RecurrencePatternType.AbsoluteYearly;
+                pattern.DayOfMonth = localStart.Day;
+                pattern.Month = localStart.Month;
+                break;
+        }
+
+        var range = new RecurrenceRange
+        {
+            StartDate = ToKiotaDate(localStart),
+            RecurrenceTimeZone = timeZone,
+        };
+
+        if (spec.Count is not null)
+        {
+            range.Type = RecurrenceRangeType.Numbered;
+            range.NumberOfOccurrences = spec.Count;
+        }
+        else if (spec.Until is not null)
+        {
+            range.Type = RecurrenceRangeType.EndDate;
+            range.EndDate = ToKiotaDate(spec.Until.Value);
+        }
+        else
+        {
+            range.Type = RecurrenceRangeType.NoEnd;
+        }
+
+        return new PatternedRecurrence { Pattern = pattern, Range = range };
+    }
+
+    private static Date ToKiotaDate(DateOnly value) => new(value.Year, value.Month, value.Day);
+
+    private static DayOfWeekObject ToGraphDay(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Sunday => DayOfWeekObject.Sunday,
+        DayOfWeek.Monday => DayOfWeekObject.Monday,
+        DayOfWeek.Tuesday => DayOfWeekObject.Tuesday,
+        DayOfWeek.Wednesday => DayOfWeekObject.Wednesday,
+        DayOfWeek.Thursday => DayOfWeekObject.Thursday,
+        DayOfWeek.Friday => DayOfWeekObject.Friday,
+        _ => DayOfWeekObject.Saturday,
+    };
+
+    private static WeekIndex ToGraphIndex(RecurrenceWeekIndex index) => index switch
+    {
+        RecurrenceWeekIndex.First => WeekIndex.First,
+        RecurrenceWeekIndex.Second => WeekIndex.Second,
+        RecurrenceWeekIndex.Third => WeekIndex.Third,
+        RecurrenceWeekIndex.Fourth => WeekIndex.Fourth,
+        _ => WeekIndex.Last,
+    };
+
+    /// <summary>The calendar date of <paramref name="value"/> on the wall clock of <paramref name="timeZoneId"/>.</summary>
+    private static DateOnly LocalDate(DateTimeOffset value, string timeZoneId)
+    {
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value, timeZone).DateTime);
     }
 
     private static List<Attendee> BuildAttendees(IEnumerable<string> attendeeAddresses) =>

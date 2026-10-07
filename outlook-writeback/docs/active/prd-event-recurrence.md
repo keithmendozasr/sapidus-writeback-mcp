@@ -1,0 +1,56 @@
+# PRD: Recurring Events in `create_event`
+
+**Owner:** Keith Mendoza
+**Status:** Implemented — pending deployment
+**Target platform:** Azure
+**Language:** C#
+**Target clients:** Claude Desktop, Claude Cowork, Claude Code CLI
+**Repo location:** `sapidus-writeback-mcp/outlook-writeback/` (parent PRDs: `docs/archive/prd-create-update.md`, `docs/archive/prd-calendar-tz-reminder.md`)
+**Issue:** [#16](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/16)
+
+---
+
+## 1. Problem Statement
+
+`create_event` creates only a single, non-repeating event. A recurring appointment (e.g. weekly PT) has to be added by hand in Outlook afterward, or created as N separate events that can't be edited or cancelled as one series.
+
+## 2. Goals
+
+- Let `create_event` create a recurring series in one call: daily, weekly, monthly, or yearly; an interval; days of the week; and an end condition (occurrence count, an until-date, or none).
+- Support both absolute monthly/yearly patterns ("the 15th of every month") and relative ones ("second Tuesday of every month", "first Friday in September every year"). Graph supports both (`absoluteMonthly`/`relativeMonthly`/`absoluteYearly`/`relativeYearly` pattern types).
+- Keep every existing `create_event` call byte-for-byte unchanged: all new parameters are optional and trailing.
+
+## 3. Non-Goals
+
+- **`update_event` is unchanged.** Editing a series raises separate questions (whole series vs. one occurrence, shifting the start date) and is a follow-up if needed.
+- No per-occurrence exceptions, and no "every weekday" shorthand (use weekly with Mon–Fri).
+- Relative monthly/yearly patterns take exactly one weekday (Graph's "first matching day" semantics for several days is confusing); weekly takes any number.
+- No deletion/preview changes: `delete_event` on a series occurrence is not touched here.
+
+## 4. Functional Requirements
+
+New optional `create_event` inputs, flat scalars (the MCP extension binds primitives, `int?` and `string[]?` reliably; a nested object is unverified):
+
+| Parameter | Meaning |
+|---|---|
+| `recurrenceType` | `daily`, `weekly`, `monthly`, `yearly`. Required if any other `recurrence*` input is set. `start`/`end` describe the first occurrence. |
+| `recurrenceInterval` | Every N units; default 1. |
+| `recurrenceDaysOfWeek` | Day names. Required for weekly (start date must fall on one of them); exactly one for relative monthly/yearly; rejected otherwise. |
+| `recurrenceWeekIndex` | `first`/`second`/`third`/`fourth`/`last`. Switches monthly/yearly to relative. |
+| `recurrenceMonth` | 1–12. Yearly + `recurrenceWeekIndex` only; defaults to the start date's month. |
+| `recurrenceCount` | End after N occurrences. |
+| `recurrenceUntil` | End on/before `yyyy-MM-dd` in the event's `timeZone`. |
+
+Neither `recurrenceCount` nor `recurrenceUntil` means no end date; both is an error.
+
+## 5. Design Notes
+
+- `OutlookWriteback.Graph/RecurrenceSpec.cs` is a Graph-agnostic, validated description built by `RecurrenceSpec.Create` (shape checks that don't need the start date) and `ValidateAgainstStart` (checks the first occurrence is a member of the series: weekly weekday in the list; relative patterns' start is that Nth weekday, and in that month for yearly; `until` not before start). Failing loudly beats Graph silently shifting the first occurrence.
+- `OutlookGraphClient.BuildRecurrence` maps the spec to `PatternedRecurrence`, setting only the pattern properties the type needs (Graph errors on extras). Weekly sets `firstDayOfWeek: sunday` (Graph default; the docs list it as required for weekly).
+- The range's `startDate` is the start's calendar date **in `timeZone`** (not the UTC date) and `recurrenceTimeZone` is `timeZone`; an end date is interpreted in the same zone. `ToGraphDateTime`'s dual-mode behavior is untouched.
+- Absolute monthly on day 29–31: Graph decides how short months are handled; not overridden here.
+- Success text becomes `Recurring event series created. ID: ...` for a series (the ID is the series master's).
+
+## 6. Milestone
+
+Single phase. Done when the implementation lands and `dotnet test --filter "Category!=E2E"` is green (it is). Real-Graph confirmation (first-occurrence rules, day-31 monthly behavior) is still open — the E2E tier doesn't cover recurrence yet — so after deployment, create a short series via the tool and read it back with the M365 connector. Moves to `docs/archive/` as `Completed` once deployed.

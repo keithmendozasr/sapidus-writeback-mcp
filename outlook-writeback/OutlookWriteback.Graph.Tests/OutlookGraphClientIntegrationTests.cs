@@ -246,6 +246,47 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task CreateEventAsync_serializes_a_relative_monthly_recurrence_in_Graphs_patternedRecurrence_shape()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            var recurrence = json.RootElement.GetProperty("recurrence");
+            var pattern = recurrence.GetProperty("pattern");
+            var range = recurrence.GetProperty("range");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(pattern.GetProperty("type").GetString(), Is.EqualTo("relativeMonthly"));
+                Assert.That(pattern.GetProperty("interval").GetInt32(), Is.EqualTo(1));
+                Assert.That(pattern.GetProperty("index").GetString(), Is.EqualTo("second"));
+                Assert.That(pattern.GetProperty("daysOfWeek")[0].GetString(), Is.EqualTo("tuesday"));
+                Assert.That(pattern.TryGetProperty("dayOfMonth", out _), Is.False);
+                Assert.That(range.GetProperty("type").GetString(), Is.EqualTo("numbered"));
+                Assert.That(range.GetProperty("startDate").GetString(), Is.EqualTo("2026-08-11"));
+                Assert.That(range.GetProperty("numberOfOccurrences").GetInt32(), Is.EqualTo(6));
+                Assert.That(range.GetProperty("recurrenceTimeZone").GetString(), Is.EqualTo("America/New_York"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = new DateTimeOffset(2026, 8, 11, 9, 0, 0, TimeSpan.FromHours(-4)); // 2nd Tuesday of Aug 2026, EDT
+
+        await CreateClient(handler).CreateEventAsync(
+            "PT",
+            start,
+            start.AddHours(1),
+            "America/New_York",
+            recurrence: RecurrenceSpec.Create("monthly", null, ["tuesday"], "second", null, 6, null));
+    }
+
+    [Test]
     public async Task CreateEventAsync_serializes_a_non_utc_timeZone_with_no_offset_suffix_and_reminder_fields()
     {
         var handler = new StubHttpMessageHandler(async request =>

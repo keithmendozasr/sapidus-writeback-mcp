@@ -39,7 +39,7 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
                 "time). Omit to leave the event's existing reminder state unchanged. There is currently no way to " +
                 "explicitly turn off an existing reminder through this tool.")]
             int? reminderMinutes,
-        [McpToolProperty("recurrenceType", RecurrenceParameterDocs.Type + " On update this replaces the event's recurrence and requires start and timeZone: set start to the series' first occurrence (its current start, from the M365 connector, if the schedule isn't moving).")]
+        [McpToolProperty("recurrenceType", RecurrenceParameterDocs.Type + " On update this replaces the series' recurrence and requires start and timeZone: pass the event's current start (from the M365 connector) if the schedule isn't moving. eventId may be any occurrence of the series, as the connector returns; the change is applied to the whole series, keeping its first-occurrence date.")]
             string? recurrenceType,
         [McpToolProperty("recurrenceInterval", RecurrenceParameterDocs.Interval)] int? recurrenceInterval,
         [McpToolProperty("recurrenceDaysOfWeek", RecurrenceParameterDocs.DaysOfWeek)] string[]? recurrenceDaysOfWeek,

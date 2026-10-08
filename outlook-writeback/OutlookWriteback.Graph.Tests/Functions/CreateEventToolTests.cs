@@ -168,7 +168,7 @@ public class CreateEventToolTests
         var result = await tool.RunAsync(
             null!, "PT", "2026-08-04T09:00:00-04:00", "2026-08-04T10:00:00-04:00", "America/New_York",
             null, null, null, null,
-            "daily", null, null, null, null, null, "04/09/2027 00:00:00 -07:00");
+            "daily", null, null, null, null, null, "04/09/2027");
 
         Assert.Multiple(() =>
         {
@@ -177,11 +177,31 @@ public class CreateEventToolTests
         });
     }
 
+    [Test]
+    public async Task RunAsync_accepts_the_values_as_the_MCP_extension_re_renders_them()
+    {
+        var (tool, lastBody) = CreateRecordingTool();
+
+        // Observed live: start "2026-10-09T17:00:00-07:00" arrives as "10/09/2026 17:00:00 -07:00" and
+        // recurrenceUntil "2027-04-09" as "04/09/2027 00:00:00 -07:00".
+        var result = await tool.RunAsync(
+            null!, "PT", "10/09/2026 17:00:00 -07:00", "10/09/2026 18:00:00 -07:00", "America/Los_Angeles",
+            null, null, null, null,
+            "daily", null, null, null, null, null, "04/09/2027 00:00:00 -07:00");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.StartWith("Recurring event series created."));
+            Assert.That(lastBody(), Does.Contain("\"startDate\":\"2026-10-09\"").And.Contain("\"endDate\":\"2027-04-09\""));
+        });
+    }
+
     [TestCase("tomorrow at 9", "start must be an ISO 8601")]
     [TestCase("", "start must be an ISO 8601")]
     [TestCase("10am", "start must be an ISO 8601")]
     [TestCase("2026-08-04T09:00:00", "start must be an ISO 8601")]
-    [TestCase("08/04/2026 09:00:00 -04:00", "start must be an ISO 8601")]
+    [TestCase("08/04/2026", "start must be an ISO 8601")]
+    [TestCase("08/04/2026 09:00:00", "start must be an ISO 8601")]
     public async Task RunAsync_returns_a_correctable_message_when_start_is_not_a_timestamp(string start, string expected)
     {
         var (tool, lastBody) = CreateRecordingTool();
@@ -202,6 +222,7 @@ public class CreateEventToolTests
     [TestCase("2026-08-04T09:00:00-04:00")]
     [TestCase("2026-08-04T13:00:00Z")]
     [TestCase("2026-08-04T09:00:00.123-04:00")]
+    [TestCase("08/04/2026 09:00:00 -04:00")] // what the MCP extension turns "2026-08-04T09:00:00-04:00" into
     public async Task RunAsync_accepts_ISO_8601_timestamps_with_an_offset(string start)
     {
         var (tool, lastBody) = CreateRecordingTool();

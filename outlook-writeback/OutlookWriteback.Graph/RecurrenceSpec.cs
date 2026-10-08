@@ -86,7 +86,7 @@ public sealed record RecurrenceSpec(
         DateOnly? untilDate = null;
         if (until is not null)
         {
-            if (!DateOnly.TryParseExact(until.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            if (!TryParseUntil(until.Trim(), out var parsed))
             {
                 throw new ArgumentException(
                     $"recurrenceUntil must be a date formatted exactly yyyy-MM-dd, e.g. 2027-04-09 - no time, no offset, " +
@@ -192,6 +192,26 @@ public sealed record RecurrenceSpec(
             throw new ArgumentException("A relative monthly/yearly series (with recurrenceWeekIndex) needs exactly one recurrenceDaysOfWeek entry.");
 
         RejectIf(!yearly && month is not null, "recurrenceMonth only applies to yearly recurrence.");
+    }
+
+    /// <summary>
+    /// Accepts yyyy-MM-dd. Also accepts the one shape the MCP extension is observed to turn a date-only string into
+    /// before it reaches the tool - invariant-culture "MM/dd/yyyy HH:mm:ss zzz" (e.g. "04/09/2027 00:00:00 -07:00") -
+    /// taking its date as written; any other shape is rejected so a guessed month/day order can't move the end date.
+    /// </summary>
+    private static bool TryParseUntil(string text, out DateOnly date)
+    {
+        if (DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+            return true;
+
+        if (DateTimeOffset.TryParseExact(text, "MM/dd/yyyy HH:mm:ss zzz", CultureInfo.InvariantCulture, DateTimeStyles.None, out var mangled))
+        {
+            date = DateOnly.FromDateTime(mangled.DateTime);
+            return true;
+        }
+
+        date = default;
+        return false;
     }
 
     private static List<DayOfWeek> ParseDays(IEnumerable<string>? daysOfWeek)

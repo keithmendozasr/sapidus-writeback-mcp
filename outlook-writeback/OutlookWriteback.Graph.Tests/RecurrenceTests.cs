@@ -166,7 +166,8 @@ public class RecurrenceTests
     [TestCase("daily", null, null, null, null, 0, null, "recurrenceCount")]
     [TestCase("daily", null, null, null, null, 3, "2026-09-01", "not both")]
     [TestCase("daily", null, null, null, null, null, "09/01/2026", "yyyy-MM-dd")]
-    [TestCase("daily", null, null, null, null, null, "04/09/2027 00:00:00 -07:00", "yyyy-MM-dd")]
+    [TestCase("daily", null, null, null, null, null, "04/09/2027", "yyyy-MM-dd")]
+    [TestCase("daily", null, null, null, null, null, "04/09/2027 00:00:00", "yyyy-MM-dd")]
     [TestCase("daily", null, null, null, null, null, "2027-04-09T00:00:00-07:00", "no time")]
     [TestCase("daily", null, null, null, null, null, "2027-4-9", "yyyy-MM-dd")]
     [TestCase("weekly", null, null, null, null, null, null, "recurrenceDaysOfWeek is required")]
@@ -189,7 +190,9 @@ public class RecurrenceTests
 
     [TestCase("2027-04-09")]
     [TestCase(" 2027-04-09 ")]
-    public void Create_accepts_a_yyyy_MM_dd_until_date(string until)
+    [TestCase("04/09/2027 00:00:00 -07:00")] // what the MCP extension turns "2027-04-09" into
+    [TestCase("04/09/2027 00:00:00 +00:00")]
+    public void Create_accepts_a_yyyy_MM_dd_until_date_including_the_shape_the_MCP_extension_rewrites_it_to(string until)
     {
         var spec = RecurrenceSpec.Create("daily", null, null, null, null, null, until);
 

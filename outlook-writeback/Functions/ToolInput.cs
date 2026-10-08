@@ -13,8 +13,13 @@ internal static class ToolInput
     // ISO 8601 date-time with an explicit offset (Z or +/-hh:mm), optional seconds / fractional seconds. A lenient
     // DateTimeOffset.Parse would also accept things like "10am" or an offset-less time and silently assume the
     // server's date and zone, which puts the event at the wrong time.
+    //
+    // The MCP extension re-renders date-looking string arguments (observed: "2026-10-09T17:00:00-07:00" arrives as
+    // "10/09/2026 17:00:00 -07:00", invariant-culture MM/dd/yyyy HH:mm:ss zzz), so that exact shape is accepted too.
+    // It is unambiguous because only that one full shape - date, time and offset - is allowed, not free-form US/EU dates.
     private static readonly string[] OffsetFormats =
     [
+        "MM/dd/yyyy HH:mm:ss zzz",
         "yyyy-MM-dd'T'HH:mmzzz",
         "yyyy-MM-dd'T'HH:mm:sszzz",
         "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz",

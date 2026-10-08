@@ -152,4 +152,22 @@ public class UpdateEventToolTests
 
         Assert.That(result, Does.StartWith("No changes were made.").And.Contain("isn't a recognized time zone"));
     }
+
+    [Test]
+    public async Task RunAsync_accepts_the_values_as_the_MCP_extension_re_renders_them()
+    {
+        var (tool, lastBody) = CreateRecordingTool();
+
+        // The exact failing call from the field: start/recurrenceUntil arrive re-rendered by the MCP extension.
+        var result = await tool.RunAsync(
+            null!, "AAkA-fake-event-id", null, "10/09/2026 17:00:00 -07:00", null, "America/Los_Angeles",
+            null, null, null, null,
+            "daily", null, null, null, null, null, "04/09/2027 00:00:00 -07:00");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.StartWith("Event updated."));
+            Assert.That(lastBody(), Does.Contain("\"startDate\":\"2026-10-09\"").And.Contain("\"endDate\":\"2027-04-09\""));
+        });
+    }
 }

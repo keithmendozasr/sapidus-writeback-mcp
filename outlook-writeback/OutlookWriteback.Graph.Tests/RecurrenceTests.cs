@@ -166,6 +166,8 @@ public class RecurrenceTests
     [TestCase("daily", null, null, null, null, 0, null, "recurrenceCount")]
     [TestCase("daily", null, null, null, null, 3, "2026-09-01", "not both")]
     [TestCase("daily", null, null, null, null, null, "09/01/2026", "yyyy-MM-dd")]
+    [TestCase("daily", null, null, null, null, null, "04/09/2027 00:00:00 -07:00", "ambiguous")]
+    [TestCase("daily", null, null, null, null, null, "2027-4-9", "yyyy-MM-dd")]
     [TestCase("weekly", null, null, null, null, null, null, "recurrenceDaysOfWeek is required")]
     [TestCase("weekly", null, new[] { "funday" }, null, null, null, null, "day names")]
     [TestCase("daily", null, new[] { "monday" }, null, null, null, null, "recurrenceDaysOfWeek")]
@@ -182,6 +184,18 @@ public class RecurrenceTests
         Assert.That(
             () => RecurrenceSpec.Create(type, interval, days, index, month, count, until),
             Throws.ArgumentException.With.Message.Contain(messagePart));
+    }
+
+    [TestCase("2027-04-09", 2027, 4, 9)]
+    [TestCase(" 2027-04-09 ", 2027, 4, 9)]
+    [TestCase("2027-04-09T00:00:00-07:00", 2027, 4, 9)]
+    [TestCase("2027-04-09T23:59:59Z", 2027, 4, 9)]
+    [TestCase("2027-04-09 00:00:00", 2027, 4, 9)]
+    public void Create_accepts_a_plain_date_or_an_ISO_datetime_for_until(string until, int year, int month, int day)
+    {
+        var spec = RecurrenceSpec.Create("daily", null, null, null, null, null, until);
+
+        Assert.That(spec.Until, Is.EqualTo(new DateOnly(year, month, day)));
     }
 
     [Test]

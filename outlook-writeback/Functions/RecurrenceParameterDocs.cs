@@ -30,5 +30,5 @@ internal static class RecurrenceParameterDocs
         "End the series after this many occurrences. Don't combine with recurrenceUntil; omit both for no end date.";
 
     public const string Until =
-        "End the series on or before this date, yyyy-MM-dd in the event's timeZone. Don't combine with recurrenceCount; omit both for no end date.";
+        "End the series on or before this date, formatted exactly yyyy-MM-dd (e.g. 2027-04-09) in the event's timeZone - not M/D/Y. Don't combine with recurrenceCount; omit both for no end date.";
 }

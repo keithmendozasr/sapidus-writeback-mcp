@@ -86,8 +86,19 @@ public sealed record RecurrenceSpec(
         DateOnly? untilDate = null;
         if (until is not null)
         {
-            if (!DateOnly.TryParseExact(until.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-                throw new ArgumentException($"recurrenceUntil must be a date in yyyy-MM-dd format (got '{until}').");
+            // Accept a plain date, or an ISO 8601 date-time (2027-04-09T00:00:00-07:00) whose date is used as
+            // written. Slash formats like 04/09/2027 are deliberately rejected: month/day order is ambiguous
+            // and silently guessing wrong would end the series on the wrong day.
+            var trimmed = until.Trim();
+            var datePart = trimmed.Length > 10 && trimmed[10] is 'T' or ' ' ? trimmed[..10] : trimmed;
+
+            if (!DateOnly.TryParseExact(datePart, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                throw new ArgumentException(
+                    $"recurrenceUntil must be a calendar date in yyyy-MM-dd format, e.g. 2027-04-09 (got '{until}'). " +
+                    "An ISO 8601 date-time such as 2027-04-09T00:00:00-07:00 is also accepted (its date is used); " +
+                    "month/day/year formats like 04/09/2027 are rejected as ambiguous.");
+            }
 
             untilDate = parsed;
         }

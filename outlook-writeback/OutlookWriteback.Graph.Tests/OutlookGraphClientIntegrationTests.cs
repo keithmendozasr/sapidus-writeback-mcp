@@ -476,6 +476,34 @@ public class OutlookGraphClientIntegrationTests
         });
     }
 
+    [TestCase(MasterStartInLosAngeles)]
+    [TestCase("""{"dateTime":"2026-10-10T00:00:00.0000000","timeZone":"UTC"}""")]
+    public async Task UpdateEventAsync_anchors_a_redirected_series_to_the_masters_first_occurrence_date(string masterStart)
+    {
+        var requests = new List<(HttpMethod Method, string Path, string Body)>();
+        var handler = CreateSeriesStub(
+            "{\"id\":\"AAkA-occurrence-id\",\"type\":\"occurrence\",\"seriesMasterId\":\"AAkA-master-id\"}",
+            masterStart,
+            requests);
+
+        // A later occurrence's start (Oct 12) and end; the master's first occurrence is Oct 9, 17:00 Los Angeles time.
+        await CreateClient(handler).UpdateEventAsync(
+            "AAkA-occurrence-id",
+            start: new DateTimeOffset(2026, 10, 12, 17, 0, 0, TimeSpan.FromHours(-7)),
+            end: new DateTimeOffset(2026, 10, 12, 18, 30, 0, TimeSpan.FromHours(-7)),
+            timeZone: "America/Los_Angeles",
+            recurrence: RecurrenceSpec.Create("daily", 1, null, null, null, null, "2027-04-09"));
+
+        var body = requests.Single(r => r.Method == HttpMethod.Patch).Body;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(body, Does.Contain("\"startDate\":\"2026-10-09\""));
+            Assert.That(body, Does.Contain("\"dateTime\":\"2026-10-09T17:00:00.0000000\""));
+            Assert.That(body, Does.Contain("\"dateTime\":\"2026-10-09T18:30:00.0000000\""));
+        });
+    }
+
     [Test]
     public async Task UpdateEventAsync_looks_nothing_up_when_recurrence_is_not_being_changed()
     {

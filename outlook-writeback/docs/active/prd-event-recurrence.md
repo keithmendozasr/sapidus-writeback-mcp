@@ -54,6 +54,7 @@ Neither `recurrenceCount` nor `recurrenceUntil` means no end date; both is an er
 - The range's `startDate` is the start's calendar date **in `timeZone`** (not the UTC date) and `recurrenceTimeZone` is `timeZone`; an end date is interpreted in the same zone. `ToGraphDateTime`'s dual-mode behavior is untouched.
 - Absolute monthly on day 29–31: Graph decides how short months are handled; not overridden here.
 - Success text becomes `Recurring event series created. ID: ...` for a series on create (the ID is the series master's); `update_event` keeps `Event updated. ID: ...`.
+- **Input errors are returned as text, not thrown.** A thrown exception reaches the calling agent only as a generic failure (the message stays in the server log), so `create_event`/`update_event` catch input problems (`ArgumentException`) and return `No event was created. The input was rejected: <what to fix>` (`No changes were made.` for update), as `delete_event` already does. This covers `start`/`end` (strict ISO 8601 with an explicit offset: `Functions/ToolInput.cs` — an offset-less or free-form value such as `10am` is rejected rather than silently read in the server's zone), unknown `timeZone`, `reminderMinutes`, blank attendees, and every `recurrence*` rule. `recurrenceUntil` must be exactly `yyyy-MM-dd`.
 - Both tools share one set of parameter descriptions (`Functions/RecurrenceParameterDocs.cs`) and one parsing entry point (`RecurrenceSpec.CreateOptional`) so their schemas can't drift.
 
 ## 6. Milestone

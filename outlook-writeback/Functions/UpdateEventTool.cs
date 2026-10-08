@@ -10,8 +10,9 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "update_event",
-            "Edit fields on an existing calendar event, including changing or adding recurrence (see the recurrence* parameters; removing recurrence is not supported). attendees entries must be non-blank - a generic failure with no " +
-                "specific reason usually means a blank entry slipped into attendees, so re-check it before retrying. " +
+            "Edit fields on an existing calendar event, including changing or adding recurrence (see the recurrence* parameters; removing recurrence is not supported). attendees entries must be non-blank. Invalid input " +
+                "(bad date/time, time zone, recurrence, or a blank attendee) is returned as a message saying what to correct - " +
+                "fix it and call again. " +
                 "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
                 "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
                 "Reconnect) before retrying - don't silently retry or fail.")]
@@ -47,22 +48,29 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
         [McpToolProperty("recurrenceCount", RecurrenceParameterDocs.Count)] int? recurrenceCount,
         [McpToolProperty("recurrenceUntil", RecurrenceParameterDocs.Until)] string? recurrenceUntil)
     {
-        var attendeeAddresses = RecipientList.Normalize(attendees);
-        var recurrence = RecurrenceSpec.CreateOptional(
-            recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceWeekIndex, recurrenceMonth, recurrenceCount, recurrenceUntil);
+        try
+        {
+            var attendeeAddresses = RecipientList.Normalize(attendees);
+            var recurrence = RecurrenceSpec.CreateOptional(
+                recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceWeekIndex, recurrenceMonth, recurrenceCount, recurrenceUntil);
 
-        var updatedId = await client.UpdateEventAsync(
-            eventId,
-            subject,
-            start is null ? null : DateTimeOffset.Parse(start),
-            end is null ? null : DateTimeOffset.Parse(end),
-            timeZone,
-            location,
-            body,
-            attendeeAddresses,
-            reminderMinutes,
-            recurrence);
+            var updatedId = await client.UpdateEventAsync(
+                eventId,
+                subject,
+                start is null ? null : ToolInput.ParseTimestamp("start", start),
+                end is null ? null : ToolInput.ParseTimestamp("end", end),
+                timeZone,
+                location,
+                body,
+                attendeeAddresses,
+                reminderMinutes,
+                recurrence);
 
-        return $"Event updated. ID: {updatedId}.";
+            return $"Event updated. ID: {updatedId}.";
+        }
+        catch (ArgumentException ex)
+        {
+            return ToolInput.Rejected("No changes were made.", ex);
+        }
     }
 }

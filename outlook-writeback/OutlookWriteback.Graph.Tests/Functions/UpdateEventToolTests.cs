@@ -20,14 +20,14 @@ public class UpdateEventToolTests
     }
 
     [Test]
-    public void RunAsync_throws_when_an_attendee_entry_is_blank()
+    public async Task RunAsync_returns_a_correctable_message_when_an_attendee_entry_is_blank()
     {
         var handler = new StubHttpMessageHandler(_ => throw new InvalidOperationException("Graph should not be called."));
         var tool = new UpdateEventTool(CreateClient(handler));
 
-        Assert.That(
-            () => tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, null, ["alice@example.com", "   "], null, null, null, null, null, null, null, null),
-            Throws.ArgumentException);
+        var result = await tool.RunAsync(null!, "AAkA-fake-event-id", null, null, null, null, null, null, ["alice@example.com", "   "], null, null, null, null, null, null, null, null);
+
+        Assert.That(result, Does.StartWith("No changes were made.").And.Contain("must not be blank"));
     }
 
     [Test]
@@ -85,28 +85,71 @@ public class UpdateEventToolTests
     }
 
     [Test]
-    public void RunAsync_throws_when_recurrenceType_is_provided_without_start_and_timeZone()
+    public async Task RunAsync_returns_a_correctable_message_when_recurrenceType_is_provided_without_start_and_timeZone()
     {
-        var (tool, _) = CreateRecordingTool();
+        var (tool, lastBody) = CreateRecordingTool();
 
-        Assert.That(
-            () => tool.RunAsync(
-                null!, "AAkA-fake-event-id", null, null, null, null,
-                null, null, null, null,
-                "daily", null, null, null, null, null, null),
-            Throws.ArgumentException.With.Message.Contain("start and timeZone"));
+        var result = await tool.RunAsync(
+            null!, "AAkA-fake-event-id", null, null, null, null,
+            null, null, null, null,
+            "daily", null, null, null, null, null, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.StartWith("No changes were made.").And.Contain("start and timeZone"));
+            Assert.That(lastBody(), Is.Empty);
+        });
     }
 
     [Test]
-    public void RunAsync_throws_when_a_recurrence_parameter_is_given_without_recurrenceType()
+    public async Task RunAsync_returns_a_correctable_message_when_a_recurrence_parameter_is_given_without_recurrenceType()
     {
         var (tool, _) = CreateRecordingTool();
 
-        Assert.That(
-            () => tool.RunAsync(
-                null!, "AAkA-fake-event-id", null, "2026-08-04T09:00:00-04:00", null, "America/New_York",
-                null, null, null, null,
-                null, 2, null, null, null, null, null),
-            Throws.ArgumentException.With.Message.Contain("recurrenceType"));
+        var result = await tool.RunAsync(
+            null!, "AAkA-fake-event-id", null, "2026-08-04T09:00:00-04:00", null, "America/New_York",
+            null, null, null, null,
+            null, 2, null, null, null, null, null);
+
+        Assert.That(result, Does.StartWith("No changes were made.").And.Contain("recurrenceType is required"));
+    }
+
+    [Test]
+    public async Task RunAsync_returns_a_correctable_message_when_nothing_to_update_is_provided()
+    {
+        var (tool, _) = CreateRecordingTool();
+
+        var result = await tool.RunAsync(
+            null!, "AAkA-fake-event-id", null, null, null, null,
+            null, null, null, null,
+            null, null, null, null, null, null, null);
+
+        Assert.That(result, Does.StartWith("No changes were made.").And.Contain("At least one of").And.Contain("reminderMinutes"));
+    }
+
+    [Test]
+    public async Task RunAsync_returns_a_correctable_message_when_start_is_not_a_timestamp()
+    {
+        var (tool, _) = CreateRecordingTool();
+
+        var result = await tool.RunAsync(
+            null!, "AAkA-fake-event-id", null, "next tuesday", null, "America/New_York",
+            null, null, null, null,
+            null, null, null, null, null, null, null);
+
+        Assert.That(result, Does.StartWith("No changes were made.").And.Contain("start must be an ISO 8601"));
+    }
+
+    [Test]
+    public async Task RunAsync_returns_a_correctable_message_when_timeZone_is_unknown()
+    {
+        var (tool, _) = CreateRecordingTool();
+
+        var result = await tool.RunAsync(
+            null!, "AAkA-fake-event-id", null, "2026-08-04T09:00:00-04:00", null, "Nowhere/Land",
+            null, null, null, null,
+            null, null, null, null, null, null, null);
+
+        Assert.That(result, Does.StartWith("No changes were made.").And.Contain("isn't a recognized time zone"));
     }
 }

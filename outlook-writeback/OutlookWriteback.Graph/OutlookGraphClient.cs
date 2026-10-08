@@ -85,7 +85,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         CancellationToken cancellationToken = default)
     {
         if (toAddresses is null && subject is null && bodyText is null && ccAddresses is null && bccAddresses is null)
-            throw new ArgumentException("At least one of toAddresses, subject, bodyText, ccAddresses, or bccAddresses must be provided.");
+            throw new ArgumentException("At least one of to, subject, body, cc, or bcc must be provided.");
 
         var message = BuildUpdateDraftMessage(toAddresses, subject, bodyText, isHtml, ccAddresses, bccAddresses);
         var updated = await client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
@@ -106,7 +106,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         CancellationToken cancellationToken = default)
     {
         if (reminderMinutesBeforeStart is < 0)
-            throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
+            throw new ArgumentException("reminderMinutes must not be negative.");
 
         var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
         var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
@@ -131,7 +131,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         CancellationToken cancellationToken = default)
     {
         if (reminderMinutesBeforeStart is < 0)
-            throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
+            throw new ArgumentException("reminderMinutes must not be negative.");
 
         if (timeZone is not null && start is null && end is null)
             throw new ArgumentException("timeZone can only be provided together with start and/or end.");
@@ -146,7 +146,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             && attendeeAddresses is null && reminderMinutesBeforeStart is null && recurrence is null)
         {
             throw new ArgumentException(
-                "At least one of subject, start, end, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, or recurrence must be provided.");
+                "At least one of subject, start, end, location, body, attendees, reminderMinutes, or a recurrence* parameter must be provided.");
         }
 
         var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
@@ -337,10 +337,24 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         _ => WeekIndex.Last,
     };
 
+    private static TimeZoneInfo ResolveTimeZone(string timeZoneId)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            throw new ArgumentException(
+                $"timeZone '{timeZoneId}' isn't a recognized time zone. Use an IANA id such as \"America/New_York\" " +
+                "(Windows names such as \"Eastern Standard Time\" also work).", ex);
+        }
+    }
+
     /// <summary>The calendar date of <paramref name="value"/> on the wall clock of <paramref name="timeZoneId"/>.</summary>
     private static DateOnly LocalDate(DateTimeOffset value, string timeZoneId)
     {
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        var timeZone = ResolveTimeZone(timeZoneId);
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value, timeZone).DateTime);
     }
 
@@ -420,7 +434,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             };
         }
 
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        var timeZone = ResolveTimeZone(timeZoneId);
         var localDateTime = TimeZoneInfo.ConvertTime(value, timeZone).DateTime;
 
         return new DateTimeTimeZone

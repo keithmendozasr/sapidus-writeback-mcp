@@ -154,6 +154,33 @@ public class UpdateEventToolTests
     }
 
     [Test]
+    public async Task RunAsync_says_the_change_was_applied_to_the_series_when_given_an_occurrences_ID()
+    {
+        var handler = new StubHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            var json = request.Method == HttpMethod.Patch
+                ? """{"id":"AAkA-master-id"}"""
+                : path.EndsWith("/AAkA-master-id")
+                    ? """{"id":"AAkA-master-id","start":{"dateTime":"2026-10-09T17:00:00.0000000","timeZone":"America/Los_Angeles"}}"""
+                    : """{"id":"AAkA-occurrence-id","type":"occurrence","seriesMasterId":"AAkA-master-id"}""";
+
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            });
+        });
+        var tool = new UpdateEventTool(CreateClient(handler));
+
+        var result = await tool.RunAsync(
+            null!, "AAkA-occurrence-id", null, "2026-10-09T17:00:00-07:00", null, "America/Los_Angeles",
+            null, null, null, null,
+            "daily", null, null, null, null, null, "2027-04-09");
+
+        Assert.That(result, Does.StartWith("Event updated.").And.Contain("applied to the series itself").And.Contain("AAkA-master-id"));
+    }
+
+    [Test]
     public async Task RunAsync_accepts_the_values_as_the_MCP_extension_re_renders_them()
     {
         var (tool, lastBody) = CreateRecordingTool();

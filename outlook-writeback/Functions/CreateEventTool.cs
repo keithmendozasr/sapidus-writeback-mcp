@@ -10,9 +10,11 @@ public sealed class CreateEventTool(OutlookGraphClient client)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "create_event",
-            "Create a calendar event on the user's calendar. attendees entries must be non-blank - a generic failure " +
-                "with no specific reason usually means a blank entry slipped into attendees, so re-check it before " +
-                "retrying. If this call fails with an authentication/401-style error, tell the user the " +
+            "Create a calendar event on the user's calendar, optionally as a recurring series (set recurrenceType plus " +
+                "the other recurrence* parameters; omit them all for a single event, and start/end then describe the " +
+                "first occurrence). attendees entries must be non-blank. Invalid input " +
+                "(bad date/time, time zone, recurrence, or a blank attendee) is returned as a message saying what to correct - " +
+                "fix it and call again. If this call fails with an authentication/401-style error, tell the user the " +
                 "outlook-writeback connector may need to be reconnected (Settings/Customize > Connectors > " +
                 "outlook-writeback > Reconnect) before retrying - don't silently retry or fail.")]
             ToolInvocationContext context,
@@ -33,20 +35,37 @@ public sealed class CreateEventTool(OutlookGraphClient client)
             "reminderMinutes",
             "Minutes before the event start to show a reminder, if setting one (e.g. 15; 0 means at start time). " +
                 "Omit to leave reminders at the mailbox/Graph default.")]
-            int? reminderMinutes)
+            int? reminderMinutes,
+        [McpToolProperty("recurrenceType", RecurrenceParameterDocs.Type)] string? recurrenceType,
+        [McpToolProperty("recurrenceInterval", RecurrenceParameterDocs.Interval)] int? recurrenceInterval,
+        [McpToolProperty("recurrenceDaysOfWeek", RecurrenceParameterDocs.DaysOfWeek)] string[]? recurrenceDaysOfWeek,
+        [McpToolProperty("recurrenceWeekIndex", RecurrenceParameterDocs.WeekIndex)] string? recurrenceWeekIndex,
+        [McpToolProperty("recurrenceMonth", RecurrenceParameterDocs.Month)] int? recurrenceMonth,
+        [McpToolProperty("recurrenceCount", RecurrenceParameterDocs.Count)] int? recurrenceCount,
+        [McpToolProperty("recurrenceUntil", RecurrenceParameterDocs.Until)] string? recurrenceUntil)
     {
-        var attendeeAddresses = RecipientList.Normalize(attendees);
+        try
+        {
+            var attendeeAddresses = RecipientList.Normalize(attendees);
+            var recurrence = RecurrenceSpec.CreateOptional(
+                recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceWeekIndex, recurrenceMonth, recurrenceCount, recurrenceUntil);
 
-        var eventId = await client.CreateEventAsync(
-            subject,
-            DateTimeOffset.Parse(start),
-            DateTimeOffset.Parse(end),
-            timeZone,
-            location,
-            body,
-            attendeeAddresses,
-            reminderMinutes);
+            var eventId = await client.CreateEventAsync(
+                subject,
+                ToolInput.ParseTimestamp("start", start),
+                ToolInput.ParseTimestamp("end", end),
+                timeZone,
+                location,
+                body,
+                attendeeAddresses,
+                reminderMinutes,
+                recurrence);
 
-        return $"Event created. ID: {eventId}.";
+            return recurrence is null ? $"Event created. ID: {eventId}." : $"Recurring event series created. ID: {eventId}.";
+        }
+        catch (ArgumentException ex)
+        {
+            return ToolInput.Rejected("No event was created.", ex);
+        }
     }
 }

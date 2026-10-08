@@ -10,8 +10,9 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "update_event",
-            "Edit fields on an existing calendar event. attendees entries must be non-blank - a generic failure with no " +
-                "specific reason usually means a blank entry slipped into attendees, so re-check it before retrying. " +
+            "Edit fields on an existing calendar event, including changing or adding recurrence (see the recurrence* parameters; removing recurrence is not supported). attendees entries must be non-blank. Invalid input " +
+                "(bad date/time, time zone, recurrence, or a blank attendee) is returned as a message saying what to correct - " +
+                "fix it and call again. " +
                 "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
                 "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
                 "Reconnect) before retrying - don't silently retry or fail.")]
@@ -37,21 +38,42 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
             "Minutes before the event start to show a reminder, if setting/changing one (e.g. 15; 0 means at start " +
                 "time). Omit to leave the event's existing reminder state unchanged. There is currently no way to " +
                 "explicitly turn off an existing reminder through this tool.")]
-            int? reminderMinutes)
+            int? reminderMinutes,
+        [McpToolProperty("recurrenceType", RecurrenceParameterDocs.Type + " On update this replaces the series' recurrence and requires start and timeZone: pass the event's current start (from the M365 connector) if the schedule isn't moving. eventId may be any occurrence of the series, as the connector returns; the change is applied to the whole series, keeping its first-occurrence date.")]
+            string? recurrenceType,
+        [McpToolProperty("recurrenceInterval", RecurrenceParameterDocs.Interval)] int? recurrenceInterval,
+        [McpToolProperty("recurrenceDaysOfWeek", RecurrenceParameterDocs.DaysOfWeek)] string[]? recurrenceDaysOfWeek,
+        [McpToolProperty("recurrenceWeekIndex", RecurrenceParameterDocs.WeekIndex)] string? recurrenceWeekIndex,
+        [McpToolProperty("recurrenceMonth", RecurrenceParameterDocs.Month)] int? recurrenceMonth,
+        [McpToolProperty("recurrenceCount", RecurrenceParameterDocs.Count)] int? recurrenceCount,
+        [McpToolProperty("recurrenceUntil", RecurrenceParameterDocs.Until)] string? recurrenceUntil)
     {
-        var attendeeAddresses = RecipientList.Normalize(attendees);
+        try
+        {
+            var attendeeAddresses = RecipientList.Normalize(attendees);
+            var recurrence = RecurrenceSpec.CreateOptional(
+                recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceWeekIndex, recurrenceMonth, recurrenceCount, recurrenceUntil);
 
-        var updatedId = await client.UpdateEventAsync(
-            eventId,
-            subject,
-            start is null ? null : DateTimeOffset.Parse(start),
-            end is null ? null : DateTimeOffset.Parse(end),
-            timeZone,
-            location,
-            body,
-            attendeeAddresses,
-            reminderMinutes);
+            var updatedId = await client.UpdateEventAsync(
+                eventId,
+                subject,
+                start is null ? null : ToolInput.ParseTimestamp("start", start),
+                end is null ? null : ToolInput.ParseTimestamp("end", end),
+                timeZone,
+                location,
+                body,
+                attendeeAddresses,
+                reminderMinutes,
+                recurrence);
 
-        return $"Event updated. ID: {updatedId}.";
+            // UpdateEventAsync answers with the series master's ID when it redirected an occurrence's ID to its series.
+            return updatedId == eventId
+                ? $"Event updated. ID: {updatedId}."
+                : $"Event updated. The ID given is one occurrence of a recurring series, so the change was applied to the series itself (series ID: {updatedId}).";
+        }
+        catch (ArgumentException ex)
+        {
+            return ToolInput.Rejected("No changes were made.", ex);
+        }
     }
 }

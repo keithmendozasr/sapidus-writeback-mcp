@@ -1,6 +1,8 @@
+using System.Globalization;
 using Azure.Identity;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Microsoft.Kiota.Abstractions;
 using OutlookWriteback.Graph.Auth;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("OutlookWriteback.Graph.Tests")]
@@ -84,7 +86,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         CancellationToken cancellationToken = default)
     {
         if (toAddresses is null && subject is null && bodyText is null && ccAddresses is null && bccAddresses is null)
-            throw new ArgumentException("At least one of toAddresses, subject, bodyText, ccAddresses, or bccAddresses must be provided.");
+            throw new ArgumentException("At least one of to, subject, body, cc, or bcc must be provided.");
 
         var message = BuildUpdateDraftMessage(toAddresses, subject, bodyText, isHtml, ccAddresses, bccAddresses);
         var updated = await client.Me.Messages[draftId].PatchAsync(message, cancellationToken: cancellationToken);
@@ -101,12 +103,13 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
         int? reminderMinutesBeforeStart = null,
+        RecurrenceSpec? recurrence = null,
         CancellationToken cancellationToken = default)
     {
         if (reminderMinutesBeforeStart is < 0)
-            throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
+            throw new ArgumentException("reminderMinutes must not be negative.");
 
-        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart);
+        var calendarEvent = BuildEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
         var created = await client.Me.Events.PostAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return created?.Id;
@@ -125,25 +128,102 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
         int? reminderMinutesBeforeStart = null,
+        RecurrenceSpec? recurrence = null,
         CancellationToken cancellationToken = default)
     {
         if (reminderMinutesBeforeStart is < 0)
-            throw new ArgumentException("reminderMinutesBeforeStart must not be negative.");
+            throw new ArgumentException("reminderMinutes must not be negative.");
 
         if (timeZone is not null && start is null && end is null)
             throw new ArgumentException("timeZone can only be provided together with start and/or end.");
 
-        if (subject is null && start is null && end is null && location is null && bodyText is null
-            && attendeeAddresses is null && reminderMinutesBeforeStart is null)
+        if (recurrence is not null && (start is null || timeZone is null))
         {
             throw new ArgumentException(
-                "At least one of subject, start, end, location, bodyText, attendeeAddresses, or reminderMinutesBeforeStart must be provided.");
+                "Changing recurrence requires start and timeZone: Graph needs the series' first-occurrence date, and it must match the event's start.");
         }
 
-        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart);
-        var updated = await client.Me.Events[eventId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
+        if (subject is null && start is null && end is null && location is null && bodyText is null
+            && attendeeAddresses is null && reminderMinutesBeforeStart is null && recurrence is null)
+        {
+            throw new ArgumentException(
+                "At least one of subject, start, end, location, body, attendees, reminderMinutes, or a recurrence* parameter must be provided.");
+        }
 
-        return updated?.Id ?? eventId;
+        var targetId = eventId;
+
+        if (recurrence is not null)
+        {
+            var seriesDayShift = await FindSeriesDayShiftAsync(eventId, start!.Value, timeZone!, cancellationToken);
+
+            if (seriesDayShift is not null)
+            {
+                targetId = seriesDayShift.MasterId;
+                start = ShiftDays(start.Value, timeZone!, seriesDayShift.Days);
+                end = end is null ? null : ShiftDays(end.Value, timeZone!, seriesDayShift.Days);
+            }
+        }
+
+        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
+        var updated = await client.Me.Events[targetId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
+
+        return updated?.Id ?? targetId;
+    }
+
+    /// <summary>
+    /// A recurrence lives on the series master, and Graph silently ignores a recurrence PATCHed onto one of its
+    /// occurrences or exceptions (it answers 200 with the event unchanged). The M365 connector's read/search tools hand
+    /// out occurrence IDs and no series master ID, so when <paramref name="eventId"/> is one, finds the master and how
+    /// many days the caller's start sits from the master's own start date. The caller's start is an occurrence's date,
+    /// and the range must start on the series' first occurrence instead, or the PATCH would move the series start and
+    /// drop every earlier occurrence. Null when <paramref name="eventId"/> needs no redirect.
+    /// </summary>
+    private async Task<SeriesDayShift?> FindSeriesDayShiftAsync(
+        string eventId,
+        DateTimeOffset start,
+        string timeZone,
+        CancellationToken cancellationToken)
+    {
+        var existing = await client.Me.Events[eventId].GetAsync(
+            request => request.QueryParameters.Select = ["type", "seriesMasterId"],
+            cancellationToken);
+
+        if (existing?.Type is not (EventType.Occurrence or EventType.Exception) || string.IsNullOrEmpty(existing.SeriesMasterId))
+        {
+            return null;
+        }
+
+        var master = await client.Me.Events[existing.SeriesMasterId].GetAsync(
+            request => request.QueryParameters.Select = ["start"],
+            cancellationToken);
+
+        var masterStart = master?.Start;
+        if (masterStart?.DateTime is null)
+        {
+            throw new InvalidOperationException($"Graph returned no start for series master '{existing.SeriesMasterId}'.");
+        }
+
+        var masterZone = ResolveTimeZone(masterStart.TimeZone ?? "UTC");
+        var masterWall = DateTime.Parse(masterStart.DateTime, CultureInfo.InvariantCulture, DateTimeStyles.None);
+        var masterLocalDate = LocalDate(new DateTimeOffset(masterWall, masterZone.GetUtcOffset(masterWall)), timeZone);
+
+        return new SeriesDayShift(existing.SeriesMasterId, masterLocalDate.DayNumber - LocalDate(start, timeZone).DayNumber);
+    }
+
+    private sealed record SeriesDayShift(string MasterId, int Days);
+
+    /// <summary>Moves <paramref name="value"/> by whole days on the wall clock of <paramref name="timeZoneId"/>, keeping its time of day.</summary>
+    private static DateTimeOffset ShiftDays(DateTimeOffset value, string timeZoneId, int days)
+    {
+        if (days == 0)
+        {
+            return value;
+        }
+
+        var timeZone = ResolveTimeZone(timeZoneId);
+        var wall = TimeZoneInfo.ConvertTime(value, timeZone).DateTime.AddDays(days);
+
+        return new DateTimeOffset(wall, timeZone.GetUtcOffset(wall));
     }
 
     public Task DeleteEventAsync(string eventId, CancellationToken cancellationToken = default) =>
@@ -203,7 +283,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? location,
         string? bodyText,
         IEnumerable<string>? attendeeAddresses = null,
-        int? reminderMinutesBeforeStart = null)
+        int? reminderMinutesBeforeStart = null,
+        RecurrenceSpec? recurrence = null)
     {
         var calendarEvent = new Event
         {
@@ -211,6 +292,9 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             Start = ToGraphDateTime(start, timeZone),
             End = ToGraphDateTime(end, timeZone),
         };
+
+        if (recurrence is not null)
+            calendarEvent.Recurrence = BuildRecurrence(recurrence, LocalDate(start, timeZone), timeZone);
 
         if (location is not null)
             calendarEvent.Location = new Location { DisplayName = location };
@@ -230,6 +314,121 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         return calendarEvent;
     }
 
+    /// <summary>
+    /// Maps a validated <see cref="RecurrenceSpec"/> to Graph's patternedRecurrence. Graph rejects pattern
+    /// properties a type doesn't use, so each type sets only its own. The range starts on the event's
+    /// local start date (the first occurrence) and is evaluated in the event's time zone.
+    /// </summary>
+    internal static PatternedRecurrence BuildRecurrence(RecurrenceSpec spec, DateOnly localStart, string timeZone)
+    {
+        spec.ValidateAgainstStart(localStart);
+
+        var pattern = new RecurrencePattern { Interval = spec.Interval };
+
+        switch (spec.Frequency)
+        {
+            case RecurrenceFrequency.Daily:
+                pattern.Type = RecurrencePatternType.Daily;
+                break;
+
+            case RecurrenceFrequency.Weekly:
+                pattern.Type = RecurrencePatternType.Weekly;
+                pattern.DaysOfWeek = [.. spec.DaysOfWeek.Select(ToGraphDay)];
+                pattern.FirstDayOfWeek = DayOfWeekObject.Sunday;
+                break;
+
+            case RecurrenceFrequency.Monthly when spec.IsRelative:
+                pattern.Type = RecurrencePatternType.RelativeMonthly;
+                pattern.DaysOfWeek = [.. spec.DaysOfWeek.Select(ToGraphDay)];
+                pattern.Index = ToGraphIndex(spec.WeekIndex!.Value);
+                break;
+
+            case RecurrenceFrequency.Monthly:
+                pattern.Type = RecurrencePatternType.AbsoluteMonthly;
+                pattern.DayOfMonth = localStart.Day;
+                break;
+
+            case RecurrenceFrequency.Yearly when spec.IsRelative:
+                pattern.Type = RecurrencePatternType.RelativeYearly;
+                pattern.DaysOfWeek = [.. spec.DaysOfWeek.Select(ToGraphDay)];
+                pattern.Index = ToGraphIndex(spec.WeekIndex!.Value);
+                pattern.Month = spec.EffectiveMonth(localStart);
+                break;
+
+            default:
+                pattern.Type = RecurrencePatternType.AbsoluteYearly;
+                pattern.DayOfMonth = localStart.Day;
+                pattern.Month = localStart.Month;
+                break;
+        }
+
+        var range = new RecurrenceRange
+        {
+            StartDate = ToKiotaDate(localStart),
+            RecurrenceTimeZone = timeZone,
+        };
+
+        if (spec.Count is not null)
+        {
+            range.Type = RecurrenceRangeType.Numbered;
+            range.NumberOfOccurrences = spec.Count;
+        }
+        else if (spec.Until is not null)
+        {
+            range.Type = RecurrenceRangeType.EndDate;
+            range.EndDate = ToKiotaDate(spec.Until.Value);
+        }
+        else
+        {
+            range.Type = RecurrenceRangeType.NoEnd;
+        }
+
+        return new PatternedRecurrence { Pattern = pattern, Range = range };
+    }
+
+    private static Date ToKiotaDate(DateOnly value) => new(value.Year, value.Month, value.Day);
+
+    private static DayOfWeekObject ToGraphDay(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Sunday => DayOfWeekObject.Sunday,
+        DayOfWeek.Monday => DayOfWeekObject.Monday,
+        DayOfWeek.Tuesday => DayOfWeekObject.Tuesday,
+        DayOfWeek.Wednesday => DayOfWeekObject.Wednesday,
+        DayOfWeek.Thursday => DayOfWeekObject.Thursday,
+        DayOfWeek.Friday => DayOfWeekObject.Friday,
+        _ => DayOfWeekObject.Saturday,
+    };
+
+    private static WeekIndex ToGraphIndex(RecurrenceWeekIndex index) => index switch
+    {
+        RecurrenceWeekIndex.First => WeekIndex.First,
+        RecurrenceWeekIndex.Second => WeekIndex.Second,
+        RecurrenceWeekIndex.Third => WeekIndex.Third,
+        RecurrenceWeekIndex.Fourth => WeekIndex.Fourth,
+        _ => WeekIndex.Last,
+    };
+
+    private static TimeZoneInfo ResolveTimeZone(string timeZoneId)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            throw new ArgumentException(
+                $"timeZone '{timeZoneId}' isn't a recognized time zone. Use an IANA id such as \"America/New_York\" " +
+                "(Windows names such as \"Eastern Standard Time\" also work).", ex);
+        }
+    }
+
+    /// <summary>The calendar date of <paramref name="value"/> on the wall clock of <paramref name="timeZoneId"/>.</summary>
+    private static DateOnly LocalDate(DateTimeOffset value, string timeZoneId)
+    {
+        var timeZone = ResolveTimeZone(timeZoneId);
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value, timeZone).DateTime);
+    }
+
     private static List<Attendee> BuildAttendees(IEnumerable<string> attendeeAddresses) =>
         [.. attendeeAddresses.Select(address => new Attendee
         {
@@ -245,7 +444,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? location,
         string? bodyText,
         IEnumerable<string>? attendeeAddresses,
-        int? reminderMinutesBeforeStart)
+        int? reminderMinutesBeforeStart,
+        RecurrenceSpec? recurrence = null)
     {
         var calendarEvent = new Event();
 
@@ -257,6 +457,15 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
 
         if (end is not null)
             calendarEvent.End = ToGraphDateTime(end.Value, timeZone);
+
+        if (recurrence is not null)
+        {
+            // UpdateEventAsync guarantees both; direct callers get a clear error instead of a null dereference.
+            if (start is null || timeZone is null)
+                throw new ArgumentException("Changing recurrence requires start and timeZone.");
+
+            calendarEvent.Recurrence = BuildRecurrence(recurrence, LocalDate(start.Value, timeZone), timeZone);
+        }
 
         if (location is not null)
             calendarEvent.Location = new Location { DisplayName = location };
@@ -296,7 +505,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
             };
         }
 
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        var timeZone = ResolveTimeZone(timeZoneId);
         var localDateTime = TimeZoneInfo.ConvertTime(value, timeZone).DateTime;
 
         return new DateTimeTimeZone

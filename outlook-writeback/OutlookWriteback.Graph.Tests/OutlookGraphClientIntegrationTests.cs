@@ -24,6 +24,11 @@ public class OutlookGraphClientIntegrationTests
         return new OutlookGraphClient(graphClient);
     }
 
+    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json"),
+    };
+
     [Test]
     public async Task CreateDraftAsync_sends_a_POST_to_me_messages_and_returns_the_created_id()
     {
@@ -246,6 +251,47 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task CreateEventAsync_serializes_a_relative_monthly_recurrence_in_Graphs_patternedRecurrence_shape()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            var recurrence = json.RootElement.GetProperty("recurrence");
+            var pattern = recurrence.GetProperty("pattern");
+            var range = recurrence.GetProperty("range");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(pattern.GetProperty("type").GetString(), Is.EqualTo("relativeMonthly"));
+                Assert.That(pattern.GetProperty("interval").GetInt32(), Is.EqualTo(1));
+                Assert.That(pattern.GetProperty("index").GetString(), Is.EqualTo("second"));
+                Assert.That(pattern.GetProperty("daysOfWeek")[0].GetString(), Is.EqualTo("tuesday"));
+                Assert.That(pattern.TryGetProperty("dayOfMonth", out _), Is.False);
+                Assert.That(range.GetProperty("type").GetString(), Is.EqualTo("numbered"));
+                Assert.That(range.GetProperty("startDate").GetString(), Is.EqualTo("2026-08-11"));
+                Assert.That(range.GetProperty("numberOfOccurrences").GetInt32(), Is.EqualTo(6));
+                Assert.That(range.GetProperty("recurrenceTimeZone").GetString(), Is.EqualTo("America/New_York"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = new DateTimeOffset(2026, 8, 11, 9, 0, 0, TimeSpan.FromHours(-4)); // 2nd Tuesday of Aug 2026, EDT
+
+        await CreateClient(handler).CreateEventAsync(
+            "PT",
+            start,
+            start.AddHours(1),
+            "America/New_York",
+            recurrence: RecurrenceSpec.Create("monthly", null, ["tuesday"], "second", null, 6, null));
+    }
+
+    [Test]
     public async Task CreateEventAsync_serializes_a_non_utc_timeZone_with_no_offset_suffix_and_reminder_fields()
     {
         var handler = new StubHttpMessageHandler(async request =>
@@ -299,6 +345,174 @@ public class OutlookGraphClientIntegrationTests
         var updatedId = await CreateClient(handler).UpdateEventAsync("AAkA-fake-event-id", subject: "New subject");
 
         Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_sends_a_PATCH_with_only_start_and_recurrence_when_recurrence_is_changed()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            // The pre-flight lookup of the event's type; a plain event with no type is patched as given.
+            if (request.Method == HttpMethod.Get)
+            {
+                return JsonResponse("""{"id":"AAkA-fake-event-id"}""");
+            }
+
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            var root = json.RootElement;
+            var recurrence = root.GetProperty("recurrence");
+            var pattern = recurrence.GetProperty("pattern");
+            var range = recurrence.GetProperty("range");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events/AAkA-fake-event-id"));
+                Assert.That(root.TryGetProperty("subject", out _), Is.False);
+                Assert.That(root.TryGetProperty("attendees", out _), Is.False);
+                Assert.That(root.GetProperty("start").GetProperty("timeZone").GetString(), Is.EqualTo("America/New_York"));
+                Assert.That(pattern.GetProperty("type").GetString(), Is.EqualTo("weekly"));
+                Assert.That(pattern.GetProperty("interval").GetInt32(), Is.EqualTo(2));
+                Assert.That(pattern.GetProperty("daysOfWeek")[0].GetString(), Is.EqualTo("tuesday"));
+                Assert.That(range.GetProperty("type").GetString(), Is.EqualTo("endDate"));
+                Assert.That(range.GetProperty("startDate").GetString(), Is.EqualTo("2026-08-04"));
+                Assert.That(range.GetProperty("endDate").GetString(), Is.EqualTo("2026-12-15"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = new DateTimeOffset(2026, 8, 4, 9, 0, 0, TimeSpan.FromHours(-4)); // a Tuesday, EDT
+
+        var updatedId = await CreateClient(handler).UpdateEventAsync(
+            "AAkA-fake-event-id",
+            start: start,
+            end: start.AddHours(1),
+            timeZone: "America/New_York",
+            recurrence: RecurrenceSpec.Create("weekly", 2, ["tuesday"], null, null, null, "2026-12-15"));
+
+        Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    private const string MasterStartInLosAngeles = """{"dateTime":"2026-10-09T17:00:00.0000000","timeZone":"America/Los_Angeles"}""";
+
+    /// <summary>
+    /// Answers the GET for the event under test with <paramref name="eventJson"/>, the GET for "AAkA-master-id" with a
+    /// start of <paramref name="masterStartJson"/>, and any PATCH with the patched ID; records every request.
+    /// </summary>
+    private static StubHttpMessageHandler CreateSeriesStub(
+        string eventJson,
+        string masterStartJson,
+        List<(HttpMethod Method, string Path, string Body)> requests) => new(async request =>
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+        requests.Add((request.Method, path, body));
+
+        if (request.Method == HttpMethod.Get)
+        {
+            return JsonResponse(path.EndsWith("/AAkA-master-id")
+                ? "{\"id\":\"AAkA-master-id\",\"start\":" + masterStartJson + "}"
+                : eventJson);
+        }
+
+        return JsonResponse("{\"id\":\"" + path[(path.LastIndexOf('/') + 1)..] + "\"}");
+    });
+
+    [TestCase("occurrence")]
+    [TestCase("exception")]
+    public async Task UpdateEventAsync_applies_a_recurrence_to_the_series_master_when_given_an_occurrences_or_exceptions_ID(string type)
+    {
+        var requests = new List<(HttpMethod Method, string Path, string Body)>();
+        var handler = CreateSeriesStub(
+            "{\"id\":\"AAkA-occurrence-id\",\"type\":\"" + type + "\",\"seriesMasterId\":\"AAkA-master-id\"}",
+            MasterStartInLosAngeles,
+            requests);
+
+        var updatedId = await CreateClient(handler).UpdateEventAsync(
+            "AAkA-occurrence-id",
+            start: new DateTimeOffset(2026, 10, 9, 17, 0, 0, TimeSpan.FromHours(-7)),
+            timeZone: "America/Los_Angeles",
+            recurrence: RecurrenceSpec.Create("daily", 1, null, null, null, null, "2027-04-09"));
+
+        var patches = requests.Where(r => r.Method == HttpMethod.Patch).ToList();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updatedId, Is.EqualTo("AAkA-master-id"));
+            Assert.That(patches, Has.Count.EqualTo(1));
+            Assert.That(patches[0].Path, Does.EndWith("/me/events/AAkA-master-id"));
+            Assert.That(patches[0].Body, Does.Contain("\"endDate\":\"2027-04-09\""));
+        });
+    }
+
+    [TestCase("seriesMaster")]
+    [TestCase("singleInstance")]
+    public async Task UpdateEventAsync_patches_the_given_ID_when_it_is_a_series_master_or_single_instance(string type)
+    {
+        var requests = new List<(HttpMethod Method, string Path, string Body)>();
+        var handler = CreateSeriesStub(
+            "{\"id\":\"AAkA-fake-event-id\",\"type\":\"" + type + "\"}",
+            MasterStartInLosAngeles,
+            requests);
+
+        var updatedId = await CreateClient(handler).UpdateEventAsync(
+            "AAkA-fake-event-id",
+            start: new DateTimeOffset(2026, 10, 9, 17, 0, 0, TimeSpan.FromHours(-7)),
+            timeZone: "America/Los_Angeles",
+            recurrence: RecurrenceSpec.Create("daily", 1, null, null, null, null, "2027-04-09"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+            Assert.That(requests.Select(r => r.Method), Is.EqualTo(new[] { HttpMethod.Get, HttpMethod.Patch }));
+            Assert.That(requests[1].Path, Does.EndWith("/me/events/AAkA-fake-event-id"));
+        });
+    }
+
+    [TestCase(MasterStartInLosAngeles)]
+    [TestCase("""{"dateTime":"2026-10-10T00:00:00.0000000","timeZone":"UTC"}""")]
+    public async Task UpdateEventAsync_anchors_a_redirected_series_to_the_masters_first_occurrence_date(string masterStart)
+    {
+        var requests = new List<(HttpMethod Method, string Path, string Body)>();
+        var handler = CreateSeriesStub(
+            "{\"id\":\"AAkA-occurrence-id\",\"type\":\"occurrence\",\"seriesMasterId\":\"AAkA-master-id\"}",
+            masterStart,
+            requests);
+
+        // A later occurrence's start (Oct 12) and end; the master's first occurrence is Oct 9, 17:00 Los Angeles time.
+        await CreateClient(handler).UpdateEventAsync(
+            "AAkA-occurrence-id",
+            start: new DateTimeOffset(2026, 10, 12, 17, 0, 0, TimeSpan.FromHours(-7)),
+            end: new DateTimeOffset(2026, 10, 12, 18, 30, 0, TimeSpan.FromHours(-7)),
+            timeZone: "America/Los_Angeles",
+            recurrence: RecurrenceSpec.Create("daily", 1, null, null, null, null, "2027-04-09"));
+
+        var body = requests.Single(r => r.Method == HttpMethod.Patch).Body;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(body, Does.Contain("\"startDate\":\"2026-10-09\""));
+            Assert.That(body, Does.Contain("\"dateTime\":\"2026-10-09T17:00:00.0000000\""));
+            Assert.That(body, Does.Contain("\"dateTime\":\"2026-10-09T18:30:00.0000000\""));
+        });
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_looks_nothing_up_when_recurrence_is_not_being_changed()
+    {
+        var requests = new List<(HttpMethod Method, string Path, string Body)>();
+        var handler = CreateSeriesStub("{\"id\":\"AAkA-fake-event-id\"}", MasterStartInLosAngeles, requests);
+
+        await CreateClient(handler).UpdateEventAsync("AAkA-fake-event-id", subject: "New subject");
+
+        Assert.That(requests.Select(r => r.Method), Is.EqualTo(new[] { HttpMethod.Patch }));
     }
 
     [Test]

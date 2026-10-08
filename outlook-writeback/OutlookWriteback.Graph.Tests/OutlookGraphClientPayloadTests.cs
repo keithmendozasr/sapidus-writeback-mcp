@@ -158,7 +158,7 @@ public class OutlookGraphClientPayloadTests
 
         Assert.That(
             () => OutlookGraphClient.BuildEvent("Standup", start, start.AddHours(1), timeZone: "Not/AZone", location: null, bodyText: null),
-            Throws.TypeOf<TimeZoneNotFoundException>());
+            Throws.ArgumentException.With.Message.Contain("isn't a recognized time zone"));
     }
 
     [Test]

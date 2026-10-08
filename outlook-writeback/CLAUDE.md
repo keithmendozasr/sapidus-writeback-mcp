@@ -8,6 +8,8 @@ All phases (spike, email MVP, calendar, multi-client OAuth, custom domain + cost
 
 **Implemented, pending deployment:** `docs/active/prd-batch-event-deletion.md` (closes [issue #19](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/19)) — `delete_event` now previews/confirms a batch of up to 25 events under one shared confirmation token instead of one token per event, and this server has been migrated off its private `DeleteConfirmationTokenService` onto `shared/Sapidus.Writeback.Shared`'s `ConfirmationTokenService` (which gained the new `IssueBatch`/`ValidateSubset` batch methods). `dotnet test --filter "Category!=E2E"` is green. This moves to `docs/archive/` (and its `Status` flips to `Completed`) once actually deployed to production, per root `CLAUDE.md`'s document-maintenance rule.
 
+**Implemented, pending deployment:** `docs/active/prd-event-recurrence.md` (closes [issue #16](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/16)) — `create_event` and `update_event` take optional flat `recurrence*` parameters to create/replace a recurring series (daily/weekly/absolute-or-relative monthly/absolute-or-relative yearly, interval, days of week, count or until-date). Validation lives in `OutlookWriteback.Graph/RecurrenceSpec.cs`; the Graph mapping is `OutlookGraphClient.BuildRecurrence`. On `update_event` it replaces the series' recurrence and requires `start` + `timeZone`; removing recurrence is not supported (Graph's behavior for `recurrence: null` is undocumented). The M365 connector only returns occurrence IDs, and Graph silently ignores a recurrence PATCHed onto an occurrence/exception, so `OutlookGraphClient.UpdateEventAsync` looks the event up first when a recurrence is supplied and, for an occurrence or exception, PATCHes its series master instead (re-anchoring `start`/`end` to the master's first-occurrence date); the tool's success text says so. Not yet verified against real Graph end to end (E2E tier has no recurrence check). Moves to `docs/archive/` once deployed.
+
 ## Runtime
 
 .NET 10 (`net10.0`), isolated worker model.
@@ -23,6 +25,7 @@ Run from the repo root (`sapidus-writeback-mcp.slnx`):
   - `Category=E2E` (`OutlookGraphClientE2ETests`) — real Microsoft Graph, real mailbox. Self-skips via `Assert.Ignore` unless the environment variables below are set; requires the real "Outlook Writeback MCP" Entra app registration and admin consent from the user. Cannot run in CI:
     - `OUTLOOK_WRITEBACK_TENANT_ID` / `OUTLOOK_WRITEBACK_CLIENT_ID` — the Entra app's IDs.
     - `OUTLOOK_WRITEBACK_TEST_TO_ADDRESS` — a real mailbox address, for the draft-creation check.
+    - Instead of exporting them by hand, copy `OutlookWriteback.Graph.Tests/E2E.runsettings.example` to `E2E.runsettings` (gitignored via `*.runsettings`), fill it in, and run `dotnet test --settings OutlookWriteback.Graph.Tests/E2E.runsettings --filter "Category=E2E"`.
 - `dotnet test --filter "Category!=E2E"` — Unit + Integration only, safe and fast for CI.
 - `func start` (from this folder) — local smoke test against real Azure dependencies (Key Vault, Entra app) via `local.settings.json` + your own `az login` session; prints the discovered MCP tool list on startup, a much faster feedback loop than deploy-and-poll.
 
@@ -41,9 +44,10 @@ The release PR is created with the default `GITHUB_TOKEN`, which doesn't itself 
 ## Key points for a future implementer
 
 - Scopes: `Mail.ReadWrite` and `Calendars.ReadWrite` only. No `Mail.Send` — the server can create/update drafts but structurally cannot send.
-- Tools: `create_draft`, `update_draft`, `create_event`, `update_event`, `delete_event`.
+- Tools: `create_draft`, `update_draft`, `create_event` and `update_event` (both recurrence-capable), `delete_event`.
 - `delete_event` is the only destructive tool and is two-step, confirmation-gated, batch-capable (1-25 event IDs per call): the first call returns each event's details (or a not-found marker) plus one confirmation token covering the whole requested set, and does nothing destructive. The second call echoes that token back along with any non-empty subset of the previewed IDs (dropping some is not an error — it's how a caller excludes an event after reviewing the preview); an ID outside the previewed set is rejected individually rather than invalidating the whole call, and one event's Graph failure doesn't block the rest of the batch.
 - `delete_event` logs one Information-level line per call (`DeleteEventTool`'s `LogWithEventIds`): the message reports the requested event-ID count in the text itself (`outcome=preview`/`outcome=confirmed requested-count=N`); both `EventIds` (the array) and `RequestedCount` also ride as structured log state, landing as their own ApplicationInsights customDimensions, with `EventIds` never appearing in the rendered log text itself.
+- Tool input problems must reach the agent as readable text: an exception thrown from a tool surfaces to the agent only as a generic failure. `create_event`/`update_event` catch `ArgumentException` and return the message (`Functions/ToolInput.cs`), like `delete_event` does; `create_draft`/`update_draft` still throw for blank/duplicate recipients (their descriptions explain the generic failure).
 - Drafts with attachments are rejected outright (no attachment support).
 - Event/draft IDs are expected to come from the M365 connector's read/search tools in the same conversation (shared Graph ID space) — this server never implements its own read/search.
 - Compute: Azure Functions, C# (isolated worker model), HTTP trigger, Flex Consumption plan.

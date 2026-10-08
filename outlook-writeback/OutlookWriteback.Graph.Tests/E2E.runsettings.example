@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Template for the environment variables the Category=E2E tests need (OutlookGraphClientE2ETests).
+  Copy to E2E.runsettings (gitignored via *.runsettings), fill in the values, then run:
+
+    dotnet test --settings OutlookWriteback.Graph.Tests/E2E.runsettings --filter "Category=E2E"
+
+  Without these, the E2E tests self-skip via Assert.Ignore.
+-->
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <!-- Tenant ID of the "Outlook Writeback MCP" Entra app registration. -->
+      <OUTLOOK_WRITEBACK_TENANT_ID>00000000-0000-0000-0000-000000000000</OUTLOOK_WRITEBACK_TENANT_ID>
+
+      <!-- Application (client) ID of the same app registration. Must be a public client with http://localhost under Mobile and desktop redirect URIs. -->
+      <OUTLOOK_WRITEBACK_CLIENT_ID>00000000-0000-0000-0000-000000000000</OUTLOOK_WRITEBACK_CLIENT_ID>
+
+      <!-- A real mailbox address, used as the recipient for the draft-creation check. Drafts only; nothing is sent. -->
+      <OUTLOOK_WRITEBACK_TEST_TO_ADDRESS>you@example.com</OUTLOOK_WRITEBACK_TEST_TO_ADDRESS>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Azure.Identity;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
@@ -149,10 +150,80 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
                 "At least one of subject, start, end, location, body, attendees, reminderMinutes, or a recurrence* parameter must be provided.");
         }
 
-        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
-        var updated = await client.Me.Events[eventId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
+        var targetId = eventId;
 
-        return updated?.Id ?? eventId;
+        if (recurrence is not null)
+        {
+            var seriesDayShift = await FindSeriesDayShiftAsync(eventId, start!.Value, timeZone!, cancellationToken);
+
+            if (seriesDayShift is not null)
+            {
+                targetId = seriesDayShift.MasterId;
+                start = ShiftDays(start.Value, timeZone!, seriesDayShift.Days);
+                end = end is null ? null : ShiftDays(end.Value, timeZone!, seriesDayShift.Days);
+            }
+        }
+
+        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
+        var updated = await client.Me.Events[targetId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
+
+        return updated?.Id ?? targetId;
+    }
+
+    /// <summary>
+    /// A recurrence lives on the series master, and Graph silently ignores a recurrence PATCHed onto one of its
+    /// occurrences or exceptions (it answers 200 with the event unchanged). The M365 connector's read/search tools hand
+    /// out occurrence IDs and no series master ID, so when <paramref name="eventId"/> is one, finds the master and how
+    /// many days the caller's start sits from the master's own start date. The caller's start is an occurrence's date,
+    /// and the range must start on the series' first occurrence instead, or the PATCH would move the series start and
+    /// drop every earlier occurrence. Null when <paramref name="eventId"/> needs no redirect.
+    /// </summary>
+    private async Task<SeriesDayShift?> FindSeriesDayShiftAsync(
+        string eventId,
+        DateTimeOffset start,
+        string timeZone,
+        CancellationToken cancellationToken)
+    {
+        var existing = await client.Me.Events[eventId].GetAsync(
+            request => request.QueryParameters.Select = ["type", "seriesMasterId"],
+            cancellationToken);
+
+        if (existing?.Type is not (EventType.Occurrence or EventType.Exception) || string.IsNullOrEmpty(existing.SeriesMasterId))
+        {
+            return null;
+        }
+
+        var master = await client.Me.Events[existing.SeriesMasterId].GetAsync(
+            request => request.QueryParameters.Select = ["start"],
+            cancellationToken);
+
+        var masterStart = master?.Start;
+        if (masterStart?.DateTime is null)
+        {
+            throw new InvalidOperationException($"Graph returned no start for series master '{existing.SeriesMasterId}'.");
+        }
+
+        var masterZone = ResolveTimeZone(masterStart.TimeZone ?? "UTC");
+        var masterWall = DateTime.Parse(masterStart.DateTime, CultureInfo.InvariantCulture, DateTimeStyles.None);
+        var masterLocalDate = LocalDate(new DateTimeOffset(masterWall, masterZone.GetUtcOffset(masterWall)), timeZone);
+
+        return new SeriesDayShift(existing.SeriesMasterId, masterLocalDate.DayNumber - LocalDate(start, timeZone).DayNumber);
+    }
+
+    private sealed record SeriesDayShift(string MasterId, int Days);
+
+    /// <summary>Moves <paramref name="value"/> by whole days on the wall clock of <paramref name="timeZoneId"/>, keeping its time of day.</summary>
+    private static DateTimeOffset ShiftDays(DateTimeOffset value, string timeZoneId, int days)
+    {
+        if (days == 0)
+        {
+            return value;
+        }
+
+        var timeZone = ResolveTimeZone(timeZoneId);
+        var wall = TimeZoneInfo.ConvertTime(value, timeZone).DateTime.AddDays(days);
+
+        return new DateTimeOffset(wall, timeZone.GetUtcOffset(wall));
     }
 
     public Task DeleteEventAsync(string eventId, CancellationToken cancellationToken = default) =>

@@ -24,6 +24,11 @@ public class OutlookGraphClientIntegrationTests
         return new OutlookGraphClient(graphClient);
     }
 
+    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json"),
+    };
+
     [Test]
     public async Task CreateDraftAsync_sends_a_POST_to_me_messages_and_returns_the_created_id()
     {
@@ -347,6 +352,12 @@ public class OutlookGraphClientIntegrationTests
     {
         var handler = new StubHttpMessageHandler(async request =>
         {
+            // The pre-flight lookup of the event's type; a plain event with no type is patched as given.
+            if (request.Method == HttpMethod.Get)
+            {
+                return JsonResponse("""{"id":"AAkA-fake-event-id"}""");
+            }
+
             var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
 
             using var json = System.Text.Json.JsonDocument.Parse(body);
@@ -386,6 +397,44 @@ public class OutlookGraphClientIntegrationTests
             recurrence: RecurrenceSpec.Create("weekly", 2, ["tuesday"], null, null, null, "2026-12-15"));
 
         Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    [Test]
+    public async Task UpdateEventAsync_applies_a_recurrence_to_the_series_master_when_given_an_occurrences_ID()
+    {
+        var patches = new List<(string Path, string Body)>();
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+
+            if (request.Method == HttpMethod.Get && path.EndsWith("/AAkA-occurrence-id"))
+            {
+                return JsonResponse("""{"id":"AAkA-occurrence-id","type":"occurrence","seriesMasterId":"AAkA-master-id"}""");
+            }
+
+            if (request.Method == HttpMethod.Get && path.EndsWith("/AAkA-master-id"))
+            {
+                return JsonResponse("""{"id":"AAkA-master-id","start":{"dateTime":"2026-10-09T17:00:00.0000000","timeZone":"America/Los_Angeles"}}""");
+            }
+
+            patches.Add((path, await request.Content!.ReadAsStringAsync()));
+
+            return JsonResponse("""{"id":"AAkA-master-id"}""");
+        });
+
+        var updatedId = await CreateClient(handler).UpdateEventAsync(
+            "AAkA-occurrence-id",
+            start: new DateTimeOffset(2026, 10, 9, 17, 0, 0, TimeSpan.FromHours(-7)),
+            timeZone: "America/Los_Angeles",
+            recurrence: RecurrenceSpec.Create("daily", 1, null, null, null, null, "2027-04-09"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updatedId, Is.EqualTo("AAkA-master-id"));
+            Assert.That(patches, Has.Count.EqualTo(1));
+            Assert.That(patches[0].Path, Does.EndWith("/me/events/AAkA-master-id"));
+            Assert.That(patches[0].Body, Does.Contain("\"endDate\":\"2027-04-09\""));
+        });
     }
 
     [Test]

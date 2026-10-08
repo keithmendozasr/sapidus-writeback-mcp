@@ -66,7 +66,10 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
                 reminderMinutes,
                 recurrence);
 
-            return $"Event updated. ID: {updatedId}.";
+            // UpdateEventAsync answers with the series master's ID when it redirected an occurrence's ID to its series.
+            return updatedId == eventId
+                ? $"Event updated. ID: {updatedId}."
+                : $"Event updated. The ID given is one occurrence of a recurring series, so the change was applied to the series itself (series ID: {updatedId}).";
         }
         catch (ArgumentException ex)
         {

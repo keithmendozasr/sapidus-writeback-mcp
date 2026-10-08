@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/keithmendozasr/sapidus-writeback-mcp/compare/outlook-writeback-0.2.0...outlook-writeback-0.3.0) (2026-10-08)
+
+
+### Features
+
+* **outlook-writeback:** batch-shape delete_event confirmation ([#24](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/24)) ([38ad13b](https://github.com/keithmendozasr/sapidus-writeback-mcp/commit/38ad13bf5ad93b26aa7ee230f82b2603fbc76371))
+* **outlook-writeback:** support recurring events in create_event and update_event ([#27](https://github.com/keithmendozasr/sapidus-writeback-mcp/issues/27)) ([bd45f0f](https://github.com/keithmendozasr/sapidus-writeback-mcp/commit/bd45f0fb280ccb52b0df37e1acb64acb8f130dcf))
+
 ## [0.2.0](https://github.com/keithmendozasr/sapidus-writeback-mcp/compare/outlook-writeback-0.1.0...outlook-writeback-0.2.0) (2026-07-28)
 
 

@@ -25,6 +25,7 @@ Run from the repo root (`sapidus-writeback-mcp.slnx`):
   - `Category=E2E` (`OutlookGraphClientE2ETests`) — real Microsoft Graph, real mailbox. Self-skips via `Assert.Ignore` unless the environment variables below are set; requires the real "Outlook Writeback MCP" Entra app registration and admin consent from the user. Cannot run in CI:
     - `OUTLOOK_WRITEBACK_TENANT_ID` / `OUTLOOK_WRITEBACK_CLIENT_ID` — the Entra app's IDs.
     - `OUTLOOK_WRITEBACK_TEST_TO_ADDRESS` — a real mailbox address, for the draft-creation check.
+    - Instead of exporting them by hand, copy `OutlookWriteback.Graph.Tests/E2E.runsettings.example` to `E2E.runsettings` (gitignored via `*.runsettings`), fill it in, and run `dotnet test --settings OutlookWriteback.Graph.Tests/E2E.runsettings --filter "Category=E2E"`.
 - `dotnet test --filter "Category!=E2E"` — Unit + Integration only, safe and fast for CI.
 - `func start` (from this folder) — local smoke test against real Azure dependencies (Key Vault, Entra app) via `local.settings.json` + your own `az login` session; prints the discovered MCP tool list on startup, a much faster feedback loop than deploy-and-poll.
 

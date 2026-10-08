@@ -217,4 +217,113 @@ public class RecurrenceTests
         // Aug 7 2026 is the first Friday of August, not September.
         Assert.That(() => Build(spec, Local(2026, 8, 7)), Throws.ArgumentException.With.Message.Contain("recurrenceMonth"));
     }
+
+    // ---- update_event ----
+
+    private static Event BuildUpdate(RecurrenceSpec? spec, DateTimeOffset? start, string? timeZone = NewYork) =>
+        OutlookGraphClient.BuildUpdateEvent(null, start, start?.AddHours(1), timeZone, null, null, null, null, spec);
+
+    private static OutlookGraphClient ClientThatMustNotCallGraph() =>
+        new(new Microsoft.Graph.GraphServiceClient(
+            new HttpClient { BaseAddress = new Uri("https://graph.microsoft.com/v1.0") },
+            new Microsoft.Kiota.Abstractions.Authentication.AnonymousAuthenticationProvider()));
+
+    [Test]
+    public void BuildUpdateEvent_leaves_Recurrence_null_when_no_recurrence_is_given()
+    {
+        Assert.That(BuildUpdate(null, Local(2026, 8, 4)).Recurrence, Is.Null);
+    }
+
+    [Test]
+    public void BuildUpdateEvent_maps_a_weekly_recurrence_alongside_start_and_end()
+    {
+        var spec = RecurrenceSpec.Create("weekly", null, ["tuesday"], null, null, 12, null);
+
+        var calendarEvent = BuildUpdate(spec, Local(2026, 8, 4));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(calendarEvent.Start?.TimeZone, Is.EqualTo(NewYork));
+            Assert.That(calendarEvent.Recurrence!.Pattern!.Type, Is.EqualTo(RecurrencePatternType.Weekly));
+            Assert.That(calendarEvent.Recurrence.Range!.StartDate?.ToString(), Is.EqualTo("2026-08-04"));
+            Assert.That(calendarEvent.Recurrence.Range.NumberOfOccurrences, Is.EqualTo(12));
+            Assert.That(calendarEvent.Subject, Is.Null);
+        });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_maps_a_relative_monthly_recurrence()
+    {
+        var spec = RecurrenceSpec.Create("monthly", null, ["tuesday"], "second", null, null, null);
+
+        var recurrence = BuildUpdate(spec, Local(2026, 8, 11)).Recurrence!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(recurrence.Pattern!.Type, Is.EqualTo(RecurrencePatternType.RelativeMonthly));
+            Assert.That(recurrence.Pattern.Index, Is.EqualTo(WeekIndex.Second));
+        });
+    }
+
+    [Test]
+    public void BuildUpdateEvent_rejects_a_start_that_is_not_part_of_the_series()
+    {
+        var spec = RecurrenceSpec.Create("weekly", null, ["wednesday"], null, null, null, null);
+
+        Assert.That(() => BuildUpdate(spec, Local(2026, 8, 4)), Throws.ArgumentException.With.Message.Contain("isn't in recurrenceDaysOfWeek"));
+    }
+
+    [Test]
+    public void BuildUpdateEvent_rejects_a_recurrence_without_start_or_timeZone()
+    {
+        var spec = RecurrenceSpec.Create("daily", null, null, null, null, null, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(() => BuildUpdate(spec, null), Throws.ArgumentException);
+            Assert.That(() => BuildUpdate(spec, Local(2026, 8, 4), timeZone: null), Throws.ArgumentException);
+        });
+    }
+
+    [Test]
+    public void UpdateEventAsync_requires_start_when_recurrence_is_provided()
+    {
+        var spec = RecurrenceSpec.Create("daily", null, null, null, null, null, null);
+
+        Assert.That(
+            () => ClientThatMustNotCallGraph().UpdateEventAsync("AAkA-fake-event-id", timeZone: NewYork, recurrence: spec),
+            Throws.ArgumentException);
+    }
+
+    [Test]
+    public void UpdateEventAsync_requires_timeZone_when_recurrence_is_provided()
+    {
+        var spec = RecurrenceSpec.Create("daily", null, null, null, null, null, null);
+
+        Assert.That(
+            () => ClientThatMustNotCallGraph().UpdateEventAsync("AAkA-fake-event-id", start: Local(2026, 8, 4), recurrence: spec),
+            Throws.ArgumentException.With.Message.Contain("start and timeZone"));
+    }
+
+    [Test]
+    public void CreateOptional_returns_null_when_no_recurrence_input_is_given()
+    {
+        Assert.That(RecurrenceSpec.CreateOptional(null, null, null, null, null, null, null), Is.Null);
+    }
+
+    [Test]
+    public void CreateOptional_throws_when_other_recurrence_input_arrives_without_a_type()
+    {
+        Assert.That(
+            () => RecurrenceSpec.CreateOptional(null, 2, null, null, null, null, null),
+            Throws.ArgumentException.With.Message.Contain("recurrenceType is required"));
+    }
+
+    [Test]
+    public void CreateOptional_builds_a_spec_when_a_type_is_given()
+    {
+        var spec = RecurrenceSpec.CreateOptional("daily", 2, null, null, null, null, null);
+
+        Assert.That(spec, Is.Not.Null.And.Property("Interval").EqualTo(2));
+    }
 }

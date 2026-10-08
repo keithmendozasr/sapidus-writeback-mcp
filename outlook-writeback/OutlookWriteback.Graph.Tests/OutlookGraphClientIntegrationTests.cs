@@ -343,6 +343,52 @@ public class OutlookGraphClientIntegrationTests
     }
 
     [Test]
+    public async Task UpdateEventAsync_sends_a_PATCH_with_only_start_and_recurrence_when_recurrence_is_changed()
+    {
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
+
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            var root = json.RootElement;
+            var recurrence = root.GetProperty("recurrence");
+            var pattern = recurrence.GetProperty("pattern");
+            var range = recurrence.GetProperty("range");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(request.Method, Is.EqualTo(HttpMethod.Patch));
+                Assert.That(request.RequestUri!.AbsolutePath, Does.Contain("/me/events/AAkA-fake-event-id"));
+                Assert.That(root.TryGetProperty("subject", out _), Is.False);
+                Assert.That(root.TryGetProperty("attendees", out _), Is.False);
+                Assert.That(root.GetProperty("start").GetProperty("timeZone").GetString(), Is.EqualTo("America/New_York"));
+                Assert.That(pattern.GetProperty("type").GetString(), Is.EqualTo("weekly"));
+                Assert.That(pattern.GetProperty("interval").GetInt32(), Is.EqualTo(2));
+                Assert.That(pattern.GetProperty("daysOfWeek")[0].GetString(), Is.EqualTo("tuesday"));
+                Assert.That(range.GetProperty("type").GetString(), Is.EqualTo("endDate"));
+                Assert.That(range.GetProperty("startDate").GetString(), Is.EqualTo("2026-08-04"));
+                Assert.That(range.GetProperty("endDate").GetString(), Is.EqualTo("2026-12-15"));
+            });
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"AAkA-fake-event-id"}""", Encoding.UTF8, "application/json"),
+            };
+        });
+
+        var start = new DateTimeOffset(2026, 8, 4, 9, 0, 0, TimeSpan.FromHours(-4)); // a Tuesday, EDT
+
+        var updatedId = await CreateClient(handler).UpdateEventAsync(
+            "AAkA-fake-event-id",
+            start: start,
+            end: start.AddHours(1),
+            timeZone: "America/New_York",
+            recurrence: RecurrenceSpec.Create("weekly", 2, ["tuesday"], null, null, null, "2026-12-15"));
+
+        Assert.That(updatedId, Is.EqualTo("AAkA-fake-event-id"));
+    }
+
+    [Test]
     public async Task UpdateEventAsync_serializes_an_empty_attendees_array_as_an_explicit_empty_collection_to_clear_it()
     {
         var handler = new StubHttpMessageHandler(async request =>

@@ -127,6 +127,7 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? bodyText = null,
         IEnumerable<string>? attendeeAddresses = null,
         int? reminderMinutesBeforeStart = null,
+        RecurrenceSpec? recurrence = null,
         CancellationToken cancellationToken = default)
     {
         if (reminderMinutesBeforeStart is < 0)
@@ -135,14 +136,20 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         if (timeZone is not null && start is null && end is null)
             throw new ArgumentException("timeZone can only be provided together with start and/or end.");
 
-        if (subject is null && start is null && end is null && location is null && bodyText is null
-            && attendeeAddresses is null && reminderMinutesBeforeStart is null)
+        if (recurrence is not null && (start is null || timeZone is null))
         {
             throw new ArgumentException(
-                "At least one of subject, start, end, location, bodyText, attendeeAddresses, or reminderMinutesBeforeStart must be provided.");
+                "Changing recurrence requires start and timeZone: Graph needs the series' first-occurrence date, and it must match the event's start.");
         }
 
-        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart);
+        if (subject is null && start is null && end is null && location is null && bodyText is null
+            && attendeeAddresses is null && reminderMinutesBeforeStart is null && recurrence is null)
+        {
+            throw new ArgumentException(
+                "At least one of subject, start, end, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, or recurrence must be provided.");
+        }
+
+        var calendarEvent = BuildUpdateEvent(subject, start, end, timeZone, location, bodyText, attendeeAddresses, reminderMinutesBeforeStart, recurrence);
         var updated = await client.Me.Events[eventId].PatchAsync(calendarEvent, cancellationToken: cancellationToken);
 
         return updated?.Id ?? eventId;
@@ -352,7 +359,8 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
         string? location,
         string? bodyText,
         IEnumerable<string>? attendeeAddresses,
-        int? reminderMinutesBeforeStart)
+        int? reminderMinutesBeforeStart,
+        RecurrenceSpec? recurrence = null)
     {
         var calendarEvent = new Event();
 
@@ -364,6 +372,15 @@ public sealed class OutlookGraphClient(GraphServiceClient client)
 
         if (end is not null)
             calendarEvent.End = ToGraphDateTime(end.Value, timeZone);
+
+        if (recurrence is not null)
+        {
+            // UpdateEventAsync guarantees both; direct callers get a clear error instead of a null dereference.
+            if (start is null || timeZone is null)
+                throw new ArgumentException("Changing recurrence requires start and timeZone.");
+
+            calendarEvent.Recurrence = BuildRecurrence(recurrence, LocalDate(start.Value, timeZone), timeZone);
+        }
 
         if (location is not null)
             calendarEvent.Location = new Location { DisplayName = location };

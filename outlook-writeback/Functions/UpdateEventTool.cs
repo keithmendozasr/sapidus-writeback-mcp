@@ -10,7 +10,7 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
     public async Task<string> RunAsync(
         [McpToolTrigger(
             "update_event",
-            "Edit fields on an existing calendar event. attendees entries must be non-blank - a generic failure with no " +
+            "Edit fields on an existing calendar event, including changing or adding recurrence (see the recurrence* parameters; removing recurrence is not supported). attendees entries must be non-blank - a generic failure with no " +
                 "specific reason usually means a blank entry slipped into attendees, so re-check it before retrying. " +
                 "If this call fails with an authentication/401-style error, tell the user the outlook-writeback " +
                 "connector may need to be reconnected (Settings/Customize > Connectors > outlook-writeback > " +
@@ -37,9 +37,19 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
             "Minutes before the event start to show a reminder, if setting/changing one (e.g. 15; 0 means at start " +
                 "time). Omit to leave the event's existing reminder state unchanged. There is currently no way to " +
                 "explicitly turn off an existing reminder through this tool.")]
-            int? reminderMinutes)
+            int? reminderMinutes,
+        [McpToolProperty("recurrenceType", RecurrenceParameterDocs.Type + " On update this replaces the event's recurrence and requires start and timeZone: set start to the series' first occurrence (its current start, from the M365 connector, if the schedule isn't moving).")]
+            string? recurrenceType,
+        [McpToolProperty("recurrenceInterval", RecurrenceParameterDocs.Interval)] int? recurrenceInterval,
+        [McpToolProperty("recurrenceDaysOfWeek", RecurrenceParameterDocs.DaysOfWeek)] string[]? recurrenceDaysOfWeek,
+        [McpToolProperty("recurrenceWeekIndex", RecurrenceParameterDocs.WeekIndex)] string? recurrenceWeekIndex,
+        [McpToolProperty("recurrenceMonth", RecurrenceParameterDocs.Month)] int? recurrenceMonth,
+        [McpToolProperty("recurrenceCount", RecurrenceParameterDocs.Count)] int? recurrenceCount,
+        [McpToolProperty("recurrenceUntil", RecurrenceParameterDocs.Until)] string? recurrenceUntil)
     {
         var attendeeAddresses = RecipientList.Normalize(attendees);
+        var recurrence = RecurrenceSpec.CreateOptional(
+            recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceWeekIndex, recurrenceMonth, recurrenceCount, recurrenceUntil);
 
         var updatedId = await client.UpdateEventAsync(
             eventId,
@@ -50,7 +60,8 @@ public sealed class UpdateEventTool(OutlookGraphClient client)
             location,
             body,
             attendeeAddresses,
-            reminderMinutes);
+            reminderMinutes,
+            recurrence);
 
         return $"Event updated. ID: {updatedId}.";
     }

@@ -37,6 +37,28 @@ public sealed record RecurrenceSpec(
 {
     public bool IsRelative => WeekIndex is not null;
 
+    /// <summary>
+    /// For tools where recurrence is optional: null when no recurrence* input was given, a validated spec when
+    /// <paramref name="type"/> is, and an error when other recurrence* inputs arrive without a type.
+    /// </summary>
+    public static RecurrenceSpec? CreateOptional(
+        string? type,
+        int? interval,
+        IEnumerable<string>? daysOfWeek,
+        string? weekIndex,
+        int? month,
+        int? count,
+        string? until)
+    {
+        if (type is not null)
+            return Create(type, interval, daysOfWeek, weekIndex, month, count, until);
+
+        if (interval is not null || daysOfWeek is not null || weekIndex is not null || month is not null || count is not null || until is not null)
+            throw new ArgumentException("recurrenceType is required when any other recurrence* parameter is provided.");
+
+        return null;
+    }
+
     public static RecurrenceSpec Create(
         string type,
         int? interval,

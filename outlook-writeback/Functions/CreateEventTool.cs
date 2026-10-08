@@ -36,38 +36,16 @@ public sealed class CreateEventTool(OutlookGraphClient client)
             "Minutes before the event start to show a reminder, if setting one (e.g. 15; 0 means at start time). " +
                 "Omit to leave reminders at the mailbox/Graph default.")]
             int? reminderMinutes,
-        [McpToolProperty(
-            "recurrenceType",
-            "Makes the event a recurring series: daily, weekly, monthly, or yearly. start/end are the first occurrence. " +
-                "Monthly/yearly repeat on the start date's day of the month (yearly: month and day) unless recurrenceWeekIndex " +
-                "is set. Omit all recurrence* parameters for a one-off event.")]
-            string? recurrenceType,
-        [McpToolProperty("recurrenceInterval", "Repeat every N days/weeks/months/years. Defaults to 1 (e.g. 2 with weekly = every other week).")]
-            int? recurrenceInterval,
-        [McpToolProperty(
-            "recurrenceDaysOfWeek",
-            "Day names (monday..sunday). Required for weekly (the start date must fall on one of them). For monthly/yearly " +
-                "with recurrenceWeekIndex, exactly one day (e.g. [\"tuesday\"]). Not allowed otherwise.")]
-            string[]? recurrenceDaysOfWeek,
-        [McpToolProperty(
-            "recurrenceWeekIndex",
-            "first, second, third, fourth, or last. Only for monthly/yearly: repeat on that weekday of the month, e.g. " +
-                "monthly + second + [\"tuesday\"] = second Tuesday of every month. The start date must itself be that weekday.")]
-            string? recurrenceWeekIndex,
-        [McpToolProperty(
-            "recurrenceMonth",
-            "1-12. Only for yearly with recurrenceWeekIndex, e.g. 9 with first + [\"friday\"] = first Friday in September " +
-                "every year. Defaults to the start date's month; the start date must be in that month.")]
-            int? recurrenceMonth,
-        [McpToolProperty("recurrenceCount", "End the series after this many occurrences. Don't combine with recurrenceUntil; omit both for no end date.")]
-            int? recurrenceCount,
-        [McpToolProperty(
-            "recurrenceUntil",
-            "End the series on or before this date, yyyy-MM-dd in the event's timeZone. Don't combine with recurrenceCount; omit both for no end date.")]
-            string? recurrenceUntil)
+        [McpToolProperty("recurrenceType", RecurrenceParameterDocs.Type)] string? recurrenceType,
+        [McpToolProperty("recurrenceInterval", RecurrenceParameterDocs.Interval)] int? recurrenceInterval,
+        [McpToolProperty("recurrenceDaysOfWeek", RecurrenceParameterDocs.DaysOfWeek)] string[]? recurrenceDaysOfWeek,
+        [McpToolProperty("recurrenceWeekIndex", RecurrenceParameterDocs.WeekIndex)] string? recurrenceWeekIndex,
+        [McpToolProperty("recurrenceMonth", RecurrenceParameterDocs.Month)] int? recurrenceMonth,
+        [McpToolProperty("recurrenceCount", RecurrenceParameterDocs.Count)] int? recurrenceCount,
+        [McpToolProperty("recurrenceUntil", RecurrenceParameterDocs.Until)] string? recurrenceUntil)
     {
         var attendeeAddresses = RecipientList.Normalize(attendees);
-        var recurrence = BuildRecurrence(
+        var recurrence = RecurrenceSpec.CreateOptional(
             recurrenceType, recurrenceInterval, recurrenceDaysOfWeek, recurrenceWeekIndex, recurrenceMonth, recurrenceCount, recurrenceUntil);
 
         var eventId = await client.CreateEventAsync(
@@ -82,17 +60,5 @@ public sealed class CreateEventTool(OutlookGraphClient client)
             recurrence);
 
         return recurrence is null ? $"Event created. ID: {eventId}." : $"Recurring event series created. ID: {eventId}.";
-    }
-
-    private static RecurrenceSpec? BuildRecurrence(
-        string? type, int? interval, string[]? daysOfWeek, string? weekIndex, int? month, int? count, string? until)
-    {
-        if (type is not null)
-            return RecurrenceSpec.Create(type, interval, daysOfWeek, weekIndex, month, count, until);
-
-        if (interval is not null || daysOfWeek is not null || weekIndex is not null || month is not null || count is not null || until is not null)
-            throw new ArgumentException("recurrenceType is required when any other recurrence* parameter is provided.");
-
-        return null;
     }
 }

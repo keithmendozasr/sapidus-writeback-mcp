@@ -1,4 +1,4 @@
-# PRD: Recurring Events in `create_event`
+# PRD: Recurring Events in `create_event` and `update_event`
 
 **Owner:** Keith Mendoza
 **Status:** Implemented — pending deployment
@@ -12,17 +12,19 @@
 
 ## 1. Problem Statement
 
-`create_event` creates only a single, non-repeating event. A recurring appointment (e.g. weekly PT) has to be added by hand in Outlook afterward, or created as N separate events that can't be edited or cancelled as one series.
+`create_event` creates only a single, non-repeating event, and `update_event` can't touch recurrence. A recurring appointment (e.g. weekly PT) has to be added by hand in Outlook afterward, or created as N separate events that can't be edited or cancelled as one series; an existing series' schedule can't be adjusted through the tools either.
 
 ## 2. Goals
 
 - Let `create_event` create a recurring series in one call: daily, weekly, monthly, or yearly; an interval; days of the week; and an end condition (occurrence count, an until-date, or none).
 - Support both absolute monthly/yearly patterns ("the 15th of every month") and relative ones ("second Tuesday of every month", "first Friday in September every year"). Graph supports both (`absoluteMonthly`/`relativeMonthly`/`absoluteYearly`/`relativeYearly` pattern types).
-- Keep every existing `create_event` call byte-for-byte unchanged: all new parameters are optional and trailing.
+- Let `update_event` replace an existing event's recurrence with the same parameters (e.g. change a weekly series to every other week, or add an end date).
+- Keep every existing `create_event` and `update_event` call byte-for-byte unchanged: all new parameters are optional and trailing.
 
 ## 3. Non-Goals
 
-- **`update_event` is unchanged.** Editing a series raises separate questions (whole series vs. one occurrence, shifting the start date) and is a follow-up if needed.
+- **No way to remove recurrence** (turn a series back into a single event). Graph's update-event sample includes `"recurrence": null`, but its effect is not documented and the Graph .NET SDK omits null properties, so it can't be shipped untested. Follow-up once it can be checked against live Graph (delete + recreate is the workaround).
+- `update_event` edits the series master's recurrence only; it doesn't edit individual occurrences or exceptions.
 - No per-occurrence exceptions, and no "every weekday" shorthand (use weekly with Mon–Fri).
 - Relative monthly/yearly patterns take exactly one weekday (Graph's "first matching day" semantics for several days is confusing); weekly takes any number.
 - No deletion/preview changes: `delete_event` on a series occurrence is not touched here.
@@ -43,13 +45,16 @@ New optional `create_event` inputs, flat scalars (the MCP extension binds primit
 
 Neither `recurrenceCount` nor `recurrenceUntil` means no end date; both is an error.
 
+`update_event` takes the same seven inputs. Setting `recurrenceType` there **replaces** the event's recurrence and requires `start` and `timeZone` (Graph requires the range's `startDate` to equal the event's start, and the first-occurrence validation needs the date and zone); pass the series' current first-occurrence start (readable via the M365 connector) when the schedule isn't moving. `end` stays optional. Calling it on a non-recurring event is expected to turn it into a series but is unverified. With no `recurrence*` inputs the PATCH payload is unchanged. Updating a series master that has separately edited occurrences sends extra notification emails and Outlook may reject with `ErrorOccurrenceCrossingBoundary` (Graph docs).
+
 ## 5. Design Notes
 
 - `OutlookWriteback.Graph/RecurrenceSpec.cs` is a Graph-agnostic, validated description built by `RecurrenceSpec.Create` (shape checks that don't need the start date) and `ValidateAgainstStart` (checks the first occurrence is a member of the series: weekly weekday in the list; relative patterns' start is that Nth weekday, and in that month for yearly; `until` not before start). Failing loudly beats Graph silently shifting the first occurrence.
 - `OutlookGraphClient.BuildRecurrence` maps the spec to `PatternedRecurrence`, setting only the pattern properties the type needs (Graph errors on extras). Weekly sets `firstDayOfWeek: sunday` (Graph default; the docs list it as required for weekly).
 - The range's `startDate` is the start's calendar date **in `timeZone`** (not the UTC date) and `recurrenceTimeZone` is `timeZone`; an end date is interpreted in the same zone. `ToGraphDateTime`'s dual-mode behavior is untouched.
 - Absolute monthly on day 29–31: Graph decides how short months are handled; not overridden here.
-- Success text becomes `Recurring event series created. ID: ...` for a series (the ID is the series master's).
+- Success text becomes `Recurring event series created. ID: ...` for a series on create (the ID is the series master's); `update_event` keeps `Event updated. ID: ...`.
+- Both tools share one set of parameter descriptions (`Functions/RecurrenceParameterDocs.cs`) and one parsing entry point (`RecurrenceSpec.CreateOptional`) so their schemas can't drift.
 
 ## 6. Milestone
 

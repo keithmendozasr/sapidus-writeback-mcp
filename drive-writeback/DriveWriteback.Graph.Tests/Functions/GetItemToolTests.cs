@@ -104,7 +104,7 @@ public class GetItemToolTests
     }
 
     [Test]
-    public void RunAsync_rejects_a_read_whose_target_was_modified_after_not_modified_since()
+    public async Task RunAsync_reports_a_read_whose_target_was_modified_after_not_modified_since()
     {
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
@@ -115,10 +115,12 @@ public class GetItemToolTests
         }));
         var tool = new GetItemTool(CreateClient(handler), new RecordingLogger<GetItemTool>());
 
+        var result = await tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id");
+
         Assert.That(
-            () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
-            Throws.InstanceOf<ItemModifiedSinceReadException>()
-                .With.Message.Contain("Re-read the file's content and resolve any conflict before retrying."));
+            result,
+            Does.Contain("no if_match value was returned")
+                .And.Contain("Re-read the file's content and resolve any conflict before retrying."));
     }
 
     [Test]
@@ -140,7 +142,7 @@ public class GetItemToolTests
     }
 
     [Test]
-    public void RunAsync_logs_an_audit_entry_on_a_rejected_read()
+    public async Task RunAsync_logs_an_audit_entry_on_a_rejected_read()
     {
         var handler = new StubHttpMessageHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
@@ -152,9 +154,8 @@ public class GetItemToolTests
         var logger = new RecordingLogger<GetItemTool>();
         var tool = new GetItemTool(CreateClient(handler), logger);
 
-        Assert.That(
-            () => tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id"),
-            Throws.InstanceOf<ItemModifiedSinceReadException>());
+        await tool.RunAsync(null!, "notes.md", NotModifiedSince, driveId: "drive-id");
+
         Assert.That(logger.Messages, Has.Some.Contains("outcome=rejected").And.Contains("notes.md"));
     }
 

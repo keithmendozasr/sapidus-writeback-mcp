@@ -68,7 +68,9 @@ public sealed class GetItemTool(DriveGraphClient client, ILogger<GetItemTool> lo
                 "get_item {PathOrId}: outcome=rejected drive-id={DriveId} not-modified-since={NotModifiedSince} last-modified={LastModifiedDateTime}",
                 ex.PathOrId, driveId, ex.NotModifiedSince, ex.LastModifiedDateTime);
 
-            throw;
+            // The MCP extension masks any unhandled exception as "An error occurred invoking 'get_item'.",
+            // which would hide the re-read instruction from the calling model - return the message instead.
+            return $"get_item rejected - no if_match value was returned. {ex.Message}";
         }
     }
 }
